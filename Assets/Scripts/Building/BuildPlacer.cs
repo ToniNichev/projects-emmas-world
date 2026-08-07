@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Sandbox.Audio;
 using Sandbox.Save;
 
 namespace Sandbox.Building
@@ -24,6 +25,7 @@ namespace Sandbox.Building
         private InputAction removeAction;
         private InputAction selectShapeAction;
         private InputAction rotateAction;
+        private SoundEffects soundEffects;
 
         public int SelectedShapeIndex => selectedShapeIndex;
 
@@ -34,6 +36,8 @@ namespace Sandbox.Building
         {
             if (placementCamera == null)
                 placementCamera = Camera.main;
+
+            soundEffects = GetComponent<SoundEffects>();
 
             RebuildGhost();
 
@@ -100,6 +104,8 @@ namespace Sandbox.Building
             Renderer blockRenderer = block.GetComponent<Renderer>();
             if (blockRenderer != null)
                 blockRenderer.material.color = UnityEngine.Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
+
+            soundEffects?.PlayPlace();
         }
 
         private void OnSelectShape(InputAction.CallbackContext context)
@@ -146,7 +152,10 @@ namespace Sandbox.Building
             {
                 PlacedBlock block = hit.collider.GetComponent<PlacedBlock>();
                 if (block != null)
+                {
                     Destroy(block.gameObject);
+                    soundEffects?.PlayRemove();
+                }
             }
         }
 

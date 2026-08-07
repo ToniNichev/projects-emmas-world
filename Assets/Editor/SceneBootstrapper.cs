@@ -8,6 +8,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.ProBuilder;
 using UnityEngine.UI;
 using Unity.Cinemachine;
+using Sandbox.Audio;
 using Sandbox.Player;
 using Sandbox.Building;
 using Sandbox.Save;
@@ -343,6 +344,7 @@ namespace Sandbox.EditorTools
             Object.DestroyImmediate(player.GetComponent<CapsuleCollider>());
             player.layer = LayerMask.NameToLayer(PlayerLayerName);
             player.AddComponent<CharacterController>();
+            player.AddComponent<SoundEffects>();
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
             BuildPlacer placer = player.AddComponent<BuildPlacer>();

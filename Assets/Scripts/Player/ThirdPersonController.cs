@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Sandbox.Audio;
 
 namespace Sandbox.Player
 {
@@ -14,8 +15,10 @@ namespace Sandbox.Player
         [SerializeField] private Transform cameraTransform;
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
+        [SerializeField] private float footstepInterval = 0.35f;
 
         private CharacterController controller;
+        private SoundEffects soundEffects;
         private InputAction moveAction;
         private InputAction sprintAction;
         private InputAction jumpAction;
@@ -23,10 +26,12 @@ namespace Sandbox.Player
         private bool sprintHeld;
         private bool jumpQueued;
         private Vector3 verticalVelocity;
+        private float footstepTimer;
 
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
+            soundEffects = GetComponent<SoundEffects>();
             if (cameraTransform == null && Camera.main != null)
                 cameraTransform = Camera.main.transform;
 
@@ -77,6 +82,7 @@ namespace Sandbox.Player
         {
             ApplyGravityAndJump();
             ApplyMovement();
+            UpdateFootsteps();
         }
 
         private void ApplyGravityAndJump()
@@ -88,9 +94,28 @@ namespace Sandbox.Player
             {
                 verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
                 jumpQueued = false;
+                soundEffects?.PlayJump();
             }
 
             verticalVelocity.y += gravity * Time.deltaTime;
+        }
+
+        private void UpdateFootsteps()
+        {
+            // Gated on movement input rather than controller.isGrounded, which is
+            // notoriously unreliable at rest even while standing on flat ground.
+            if (moveInput.sqrMagnitude < 0.01f)
+            {
+                footstepTimer = 0f;
+                return;
+            }
+
+            footstepTimer -= Time.deltaTime;
+            if (footstepTimer <= 0f)
+            {
+                soundEffects?.PlayFootstep();
+                footstepTimer = footstepInterval;
+            }
         }
 
         private void ApplyMovement()
