@@ -1,5 +1,4 @@
 using System.IO;
-using System.Linq;
 using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
@@ -10,6 +9,7 @@ using Unity.Cinemachine;
 using Sandbox.Player;
 using Sandbox.Building;
 using Sandbox.Save;
+using Sandbox.CameraControl;
 
 namespace Sandbox.EditorTools
 {
@@ -42,7 +42,7 @@ namespace Sandbox.EditorTools
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
             GameObject player = BuildPlayer(actions, blockPrefab, placedBlocks.transform, playerMaterial);
-            BuildCamera(actions, player.transform);
+            BuildCamera(player.transform);
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -72,11 +72,10 @@ namespace Sandbox.EditorTools
                 .With("Left", "<Keyboard>/a")
                 .With("Right", "<Keyboard>/d");
 
-            map.AddAction("Look", InputActionType.Value, binding: "<Mouse>/delta", expectedControlLayout: "Vector2");
             map.AddAction("Sprint", InputActionType.Button, binding: "<Keyboard>/leftShift");
             map.AddAction("Jump", InputActionType.Button, binding: "<Keyboard>/space");
             map.AddAction("Place", InputActionType.Button, binding: "<Mouse>/leftButton");
-            map.AddAction("Remove", InputActionType.Button, binding: "<Mouse>/rightButton");
+            map.AddAction("Remove", InputActionType.Button, binding: "<Keyboard>/q");
             map.AddAction("Save", InputActionType.Button, binding: "<Keyboard>/f5");
             map.AddAction("Load", InputActionType.Button, binding: "<Keyboard>/f9");
 
@@ -90,14 +89,6 @@ namespace Sandbox.EditorTools
             AssetDatabase.ImportAsset(InputActionsPath, ImportAssetOptions.ForceSynchronousImport);
 
             return AssetDatabase.LoadAssetAtPath<InputActionAsset>(InputActionsPath);
-        }
-
-        private static InputActionReference FindActionReference(InputActionAsset asset, string mapName, string actionName)
-        {
-            string path = AssetDatabase.GetAssetPath(asset);
-            return AssetDatabase.LoadAllAssetsAtPath(path)
-                .OfType<InputActionReference>()
-                .FirstOrDefault(r => r.action != null && r.action.actionMap.name == mapName && r.action.name == actionName);
         }
 
         private static Material CreateMaterial(string name, Color color)
@@ -135,7 +126,6 @@ namespace Sandbox.EditorTools
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
             BuildPlacer placer = player.AddComponent<BuildPlacer>();
             WorldSaveSystem save = player.AddComponent<WorldSaveSystem>();
-            player.AddComponent<CursorLocker>();
 
             SetPrivateField(controller, "actions", actions);
             SetPrivateField(placer, "actions", actions);
@@ -153,7 +143,7 @@ namespace Sandbox.EditorTools
             return player;
         }
 
-        private static void BuildCamera(InputActionAsset actions, Transform playerTransform)
+        private static void BuildCamera(Transform playerTransform)
         {
             GameObject camGo = new GameObject("PlayerFollowCamera");
             CinemachineCamera cmCam = camGo.AddComponent<CinemachineCamera>();
@@ -166,21 +156,8 @@ namespace Sandbox.EditorTools
 
             camGo.AddComponent<CinemachineRotationComposer>();
 
-            CinemachineInputAxisController axisController = camGo.AddComponent<CinemachineInputAxisController>();
-            axisController.SynchronizeControllers();
-            InputActionReference lookRef = FindActionReference(actions, "Player", "Look");
-            if (lookRef == null)
-            {
-                Debug.LogError("SceneBootstrapper: could not find Look InputActionReference");
-            }
-            else
-            {
-                foreach (var controller in axisController.Controllers)
-                {
-                    if (controller.Name == "Look Orbit X" || controller.Name == "Look Orbit Y")
-                        controller.Input.InputAction = lookRef;
-                }
-            }
+            OrbitCameraDragController dragController = camGo.AddComponent<OrbitCameraDragController>();
+            SetPrivateField(dragController, "orbitalFollow", orbitalFollow);
 
             GameObject mainCamGo = new GameObject("Main Camera");
             mainCamGo.tag = "MainCamera";
