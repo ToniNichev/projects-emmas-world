@@ -12,8 +12,13 @@ namespace Sandbox.Player
         [SerializeField] private float gravity = -18f;
         [SerializeField] private float rotationSpeed = 12f;
         [SerializeField] private Transform cameraTransform;
+        [SerializeField] private InputActionAsset actions;
+        [SerializeField] private string actionMapName = "Player";
 
         private CharacterController controller;
+        private InputAction moveAction;
+        private InputAction sprintAction;
+        private InputAction jumpAction;
         private Vector2 moveInput;
         private bool sprintHeld;
         private bool jumpQueued;
@@ -24,19 +29,45 @@ namespace Sandbox.Player
             controller = GetComponent<CharacterController>();
             if (cameraTransform == null && Camera.main != null)
                 cameraTransform = Camera.main.transform;
+
+            InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
+            moveAction = map.FindAction("Move", throwIfNotFound: true);
+            sprintAction = map.FindAction("Sprint", throwIfNotFound: true);
+            jumpAction = map.FindAction("Jump", throwIfNotFound: true);
         }
 
-        public void OnMove(InputAction.CallbackContext context)
+        private void OnEnable()
+        {
+            moveAction.performed += OnMove;
+            moveAction.canceled += OnMove;
+            sprintAction.performed += OnSprint;
+            sprintAction.canceled += OnSprint;
+            jumpAction.performed += OnJump;
+            moveAction.Enable();
+            sprintAction.Enable();
+            jumpAction.Enable();
+        }
+
+        private void OnDisable()
+        {
+            moveAction.performed -= OnMove;
+            moveAction.canceled -= OnMove;
+            sprintAction.performed -= OnSprint;
+            sprintAction.canceled -= OnSprint;
+            jumpAction.performed -= OnJump;
+        }
+
+        private void OnMove(InputAction.CallbackContext context)
         {
             moveInput = context.ReadValue<Vector2>();
         }
 
-        public void OnSprint(InputAction.CallbackContext context)
+        private void OnSprint(InputAction.CallbackContext context)
         {
             sprintHeld = context.ReadValueAsButton();
         }
 
-        public void OnJump(InputAction.CallbackContext context)
+        private void OnJump(InputAction.CallbackContext context)
         {
             if (context.performed && controller.isGrounded)
                 jumpQueued = true;

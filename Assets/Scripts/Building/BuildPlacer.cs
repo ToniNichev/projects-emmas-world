@@ -11,8 +11,12 @@ namespace Sandbox.Building
         [SerializeField] private float maxPlaceDistance = 8f;
         [SerializeField] private LayerMask placementMask = ~0;
         [SerializeField] private Transform blockParent;
+        [SerializeField] private InputActionAsset actions;
+        [SerializeField] private string actionMapName = "Player";
 
         private GameObject previewGhost;
+        private InputAction placeAction;
+        private InputAction removeAction;
 
         private void Awake()
         {
@@ -25,6 +29,24 @@ namespace Sandbox.Building
                 SetGhostAppearance(previewGhost);
                 previewGhost.SetActive(false);
             }
+
+            InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
+            placeAction = map.FindAction("Place", throwIfNotFound: true);
+            removeAction = map.FindAction("Remove", throwIfNotFound: true);
+        }
+
+        private void OnEnable()
+        {
+            placeAction.performed += OnPlace;
+            removeAction.performed += OnRemove;
+            placeAction.Enable();
+            removeAction.Enable();
+        }
+
+        private void OnDisable()
+        {
+            placeAction.performed -= OnPlace;
+            removeAction.performed -= OnRemove;
         }
 
         private void Update()
@@ -48,7 +70,7 @@ namespace Sandbox.Building
             }
         }
 
-        public void OnPlace(InputAction.CallbackContext context)
+        private void OnPlace(InputAction.CallbackContext context)
         {
             if (!context.performed)
                 return;
@@ -61,7 +83,7 @@ namespace Sandbox.Building
             block.AddComponent<PlacedBlock>();
         }
 
-        public void OnRemove(InputAction.CallbackContext context)
+        private void OnRemove(InputAction.CallbackContext context)
         {
             if (!context.performed)
                 return;

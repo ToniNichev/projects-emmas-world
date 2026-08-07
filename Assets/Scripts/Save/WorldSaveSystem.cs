@@ -12,19 +12,43 @@ namespace Sandbox.Save
         [SerializeField] private Transform blockParent;
         [SerializeField] private GameObject blockPrefab;
         [SerializeField] private string saveFileName = "world.json";
+        [SerializeField] private InputActionAsset actions;
+        [SerializeField] private string actionMapName = "Player";
+
+        private InputAction saveAction;
+        private InputAction loadAction;
 
         private string SavePath => Path.Combine(Application.persistentDataPath, saveFileName);
 
-        public void OnSave(InputAction.CallbackContext context)
+        private void Awake()
         {
-            if (context.performed)
-                SaveWorld();
+            InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
+            saveAction = map.FindAction("Save", throwIfNotFound: true);
+            loadAction = map.FindAction("Load", throwIfNotFound: true);
         }
 
-        public void OnLoad(InputAction.CallbackContext context)
+        private void OnEnable()
         {
-            if (context.performed)
-                LoadWorld();
+            saveAction.performed += OnSave;
+            loadAction.performed += OnLoad;
+            saveAction.Enable();
+            loadAction.Enable();
+        }
+
+        private void OnDisable()
+        {
+            saveAction.performed -= OnSave;
+            loadAction.performed -= OnLoad;
+        }
+
+        private void OnSave(InputAction.CallbackContext context)
+        {
+            SaveWorld();
+        }
+
+        private void OnLoad(InputAction.CallbackContext context)
+        {
+            LoadWorld();
         }
 
         public void SaveWorld()
