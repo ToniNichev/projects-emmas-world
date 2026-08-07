@@ -35,6 +35,7 @@ namespace Sandbox.EditorTools
 
             Material groundMaterial = CreateMaterial("Ground", new Color(0.35f, 0.6f, 0.3f));
             Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
+            Material playerHeadMaterial = CreateMaterial("PlayerHead", new Color(0.95f, 0.8f, 0.65f));
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
@@ -49,7 +50,7 @@ namespace Sandbox.EditorTools
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial);
             BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
 
@@ -335,15 +336,23 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material playerMaterial)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial)
         {
-            GameObject player = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            player.name = "Player";
+            // Root holds collision only (CharacterController); the visible blocky
+            // humanoid lives under a child "Avatar" transform so the two can vary
+            // independently (e.g. later swapping/animating the avatar without
+            // touching collision).
+            GameObject player = new GameObject("Player");
             player.transform.position = new Vector3(0f, 1f, 0f);
-            player.GetComponent<Renderer>().sharedMaterial = playerMaterial;
-            Object.DestroyImmediate(player.GetComponent<CapsuleCollider>());
             player.layer = LayerMask.NameToLayer(PlayerLayerName);
-            player.AddComponent<CharacterController>();
+
+            CharacterController characterController = player.AddComponent<CharacterController>();
+            characterController.center = Vector3.zero;
+            characterController.radius = 0.5f;
+            characterController.height = 2f;
+
+            BuildAvatarVisual(player.transform, bodyMaterial, headMaterial);
+
             player.AddComponent<SoundEffects>();
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
@@ -364,6 +373,37 @@ namespace Sandbox.EditorTools
             SetPrivateField(save, "blockParent", blockParent);
 
             return player;
+        }
+
+        private static void BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial)
+        {
+            // Positions/sizes are in the root's local space, which is centered on
+            // the CharacterController (center=(0,0,0), height=2) -- so this spans
+            // local y -1 (feet) to +1 (head top), matching the capsule it replaces.
+            GameObject avatar = new GameObject("Avatar");
+            avatar.transform.SetParent(parent, false);
+
+            CreateBodyPart(avatar.transform, "Torso", new Vector3(0f, 0.25f, 0f), new Vector3(0.9f, 0.7f, 0.45f), bodyMaterial);
+            CreateBodyPart(avatar.transform, "Head", new Vector3(0f, 0.8f, 0f), new Vector3(0.4f, 0.4f, 0.4f), headMaterial);
+            CreateBodyPart(avatar.transform, "LeftArm", new Vector3(-0.6f, 0.25f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            CreateBodyPart(avatar.transform, "RightArm", new Vector3(0.6f, 0.25f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            CreateBodyPart(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.55f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
+            CreateBodyPart(avatar.transform, "RightLeg", new Vector3(0.2f, -0.55f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
+        }
+
+        private static void CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
+        {
+            GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            part.name = name;
+            part.transform.SetParent(parent, false);
+            part.transform.localPosition = localPosition;
+            part.transform.localScale = size;
+            part.GetComponent<Renderer>().sharedMaterial = material;
+
+            // Visual only -- the root's CharacterController is the sole collider,
+            // so a collider here would just be redundant (and could interfere with
+            // BuildPlacer's raycasts, which only exclude the root's own layer).
+            Object.DestroyImmediate(part.GetComponent<BoxCollider>());
         }
 
         private static void BuildCamera(Transform playerTransform)
