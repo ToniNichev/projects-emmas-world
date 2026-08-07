@@ -142,14 +142,11 @@ namespace Sandbox.EditorTools
             cmCam.Follow = playerTransform;
             cmCam.LookAt = playerTransform;
 
-            CinemachineThirdPersonFollow thirdPerson = camGo.AddComponent<CinemachineThirdPersonFollow>();
-            thirdPerson.Damping = new Vector3(0.1f, 0.5f, 0.3f);
-            thirdPerson.ShoulderOffset = new Vector3(0.4f, 0.6f, 0.2f);
-            thirdPerson.VerticalArmLength = 0.3f;
-            thirdPerson.CameraSide = 1f;
-            thirdPerson.CameraDistance = 7f;
+            CinemachineOrbitalFollow orbitalFollow = camGo.AddComponent<CinemachineOrbitalFollow>();
+            orbitalFollow.TargetOffset = new Vector3(0f, 0.3f, 0f);
+            orbitalFollow.Radius = 7f;
 
-            camGo.AddComponent<CinemachinePanTilt>();
+            camGo.AddComponent<CinemachineRotationComposer>();
 
             CinemachineInputAxisController axisController = camGo.AddComponent<CinemachineInputAxisController>();
             axisController.SynchronizeControllers();
@@ -161,7 +158,10 @@ namespace Sandbox.EditorTools
             else
             {
                 foreach (var controller in axisController.Controllers)
-                    controller.Input.InputAction = lookRef;
+                {
+                    if (controller.Name == "Look Orbit X" || controller.Name == "Look Orbit Y")
+                        controller.Input.InputAction = lookRef;
+                }
             }
 
             GameObject mainCamGo = new GameObject("Main Camera");

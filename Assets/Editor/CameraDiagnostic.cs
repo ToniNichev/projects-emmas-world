@@ -62,10 +62,10 @@ namespace Sandbox.EditorTools
                 Debug.Log($"vcam Priority: {vcam.Priority}");
             }
 
-            var thirdPerson = vcamGo != null ? vcamGo.GetComponent<CinemachineThirdPersonFollow>() : null;
-            Debug.Log($"ThirdPersonFollow found: {thirdPerson != null}, enabled: {thirdPerson != null && thirdPerson.enabled}");
-            if (thirdPerson != null)
-                Debug.Log($"ThirdPersonFollow.IsValid (needs FollowTarget != null): {thirdPerson.FollowTarget != null}");
+            var orbitalFollow = vcamGo != null ? vcamGo.GetComponent<CinemachineOrbitalFollow>() : null;
+            Debug.Log($"OrbitalFollow found: {orbitalFollow != null}, enabled: {orbitalFollow != null && orbitalFollow.enabled}");
+            if (orbitalFollow != null)
+                Debug.Log($"OrbitalFollow.IsValid (needs FollowTarget != null): {orbitalFollow.FollowTarget != null}, Radius: {orbitalFollow.Radius}");
 
             if (playerGo != null)
                 Debug.Log($"Player pos: {playerGo.transform.position}");
