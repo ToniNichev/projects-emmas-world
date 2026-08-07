@@ -144,10 +144,10 @@ namespace Sandbox.EditorTools
 
             CinemachineThirdPersonFollow thirdPerson = camGo.AddComponent<CinemachineThirdPersonFollow>();
             thirdPerson.Damping = new Vector3(0.1f, 0.5f, 0.3f);
-            thirdPerson.ShoulderOffset = new Vector3(0.5f, -0.4f, 0.2f);
-            thirdPerson.VerticalArmLength = 0.4f;
+            thirdPerson.ShoulderOffset = new Vector3(0.4f, 0.6f, 0.2f);
+            thirdPerson.VerticalArmLength = 0.3f;
             thirdPerson.CameraSide = 1f;
-            thirdPerson.CameraDistance = 4f;
+            thirdPerson.CameraDistance = 7f;
 
             camGo.AddComponent<CinemachinePanTilt>();
 
