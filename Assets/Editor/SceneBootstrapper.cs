@@ -135,6 +135,7 @@ namespace Sandbox.EditorTools
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
             BuildPlacer placer = player.AddComponent<BuildPlacer>();
             WorldSaveSystem save = player.AddComponent<WorldSaveSystem>();
+            player.AddComponent<CursorLocker>();
 
             SetPrivateField(controller, "actions", actions);
             SetPrivateField(placer, "actions", actions);

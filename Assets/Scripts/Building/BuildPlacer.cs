@@ -129,7 +129,7 @@ namespace Sandbox.Building
 
         private static Vector2 GetPointerScreenPosition()
         {
-            return Mouse.current != null ? Mouse.current.position.ReadValue() : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
         }
 
         private static void SetGhostAppearance(GameObject ghost)
