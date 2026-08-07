@@ -25,6 +25,7 @@ namespace Sandbox.EditorTools
         private const string TerrainFolder = "Assets/Terrain";
         private const string PlayerLayerName = "Player";
         private const string MaterialsFolder = "Assets/Materials";
+        private const string TexturesFolder = "Assets/Textures";
 
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
@@ -40,6 +41,15 @@ namespace Sandbox.EditorTools
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
             Material leafMaterial = CreateMaterial("Leaves", new Color(0.15f, 0.5f, 0.2f));
+
+            ApplyNoiseTexture(groundMaterial, "GrassNoise", new Color(0.3f, 0.55f, 0.25f), new Color(0.45f, 0.68f, 0.35f), 0.15f, 1.3f);
+            groundMaterial.mainTextureScale = new Vector2(24f, 24f);
+            ApplyNoiseTexture(playerMaterial, "BodyNoise", new Color(0.2f, 0.5f, 0.9f), new Color(0.3f, 0.6f, 0.95f), 0.4f, 0.5f);
+            ApplyNoiseTexture(playerHeadMaterial, "SkinNoise", new Color(0.9f, 0.75f, 0.6f), new Color(0.98f, 0.85f, 0.7f), 0.4f, 0.5f);
+            ApplyNoiseTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.5f, 0.4f);
+            ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
+            ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
+            ApplyNoiseTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.45f, 0.18f), new Color(0.22f, 0.58f, 0.25f), 0.3f, 1.4f);
 
             Terrain terrain = CreateTerrain(groundMaterial);
 
@@ -114,6 +124,65 @@ namespace Sandbox.EditorTools
             var material = new Material(Shader.Find("Standard")) { name = name, color = color };
             AssetDatabase.CreateAsset(material, path);
             return material;
+        }
+
+        private const int TextureSize = 64;
+
+        // Multiplies into whatever tint the material/instance already has
+        // (Standard shader albedo = mainTex * color), so this works both for
+        // static materials (Ground, Rock, ...) and Block, whose per-instance
+        // random color is applied later at placement time.
+        private static void ApplyNoiseTexture(Material material, string name, Color baseColor, Color varyColor, float noiseScale, float contrast)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float n = Mathf.PerlinNoise(x * noiseScale, y * noiseScale);
+                    n = Mathf.Clamp01(0.5f + (n - 0.5f) * contrast);
+                    texture.SetPixel(x, y, Color.Lerp(baseColor, varyColor, n));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
+        private static void ApplyWoodTexture(Material material, string name, Color baseColor, Color grainColor)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            // Vertical bark-like streaks: primarily varies across x (wraps around
+            // the trunk's circumference), with a little Perlin jitter so the
+            // streaks aren't perfectly straight.
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float jitter = Mathf.PerlinNoise(x * 0.05f, y * 0.2f) * 3f;
+                    float stripe = Mathf.Sin((x + jitter) * 0.8f) * 0.5f + 0.5f;
+                    texture.SetPixel(x, y, Color.Lerp(baseColor, grainColor, stripe * 0.6f));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
         }
 
         private static Terrain CreateTerrain(Material material)
