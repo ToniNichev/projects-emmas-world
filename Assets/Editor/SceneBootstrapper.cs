@@ -37,6 +37,7 @@ namespace Sandbox.EditorTools
             Material groundMaterial = CreateMaterial("Ground", new Color(0.35f, 0.6f, 0.3f));
             Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
             Material playerHeadMaterial = CreateMaterial("PlayerHead", new Color(0.95f, 0.8f, 0.65f));
+            Material shirtMaterial = CreateMaterial("Shirt", Color.white);
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
@@ -46,6 +47,9 @@ namespace Sandbox.EditorTools
             groundMaterial.mainTextureScale = new Vector2(24f, 24f);
             ApplyNoiseTexture(playerMaterial, "BodyNoise", new Color(0.2f, 0.5f, 0.9f), new Color(0.3f, 0.6f, 0.95f), 0.4f, 0.5f);
             ApplyNoiseTexture(playerHeadMaterial, "SkinNoise", new Color(0.9f, 0.75f, 0.6f), new Color(0.98f, 0.85f, 0.7f), 0.4f, 0.5f);
+            // Solid white base color so the stripe colors show through unmodified
+            // (albedo = mainTex * color); the texture itself carries the actual hues.
+            ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
             ApplyNoiseTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.5f, 0.4f);
             ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
             ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
@@ -60,7 +64,7 @@ namespace Sandbox.EditorTools
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial);
             BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
 
@@ -177,6 +181,31 @@ namespace Sandbox.EditorTools
                     float stripe = Mathf.Sin((x + jitter) * 0.8f) * 0.5f + 0.5f;
                     texture.SetPixel(x, y, Color.Lerp(baseColor, grainColor, stripe * 0.6f));
                 }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
+        private static void ApplyStripeTexture(Material material, string name, Color colorA, Color colorB, int stripeCount)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                // Point filtering keeps stripe edges crisp instead of blurring them
+                // into a gradient the way Bilinear would.
+                filterMode = FilterMode.Point,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                int band = y * stripeCount / TextureSize;
+                Color rowColor = band % 2 == 0 ? colorA : colorB;
+                for (int x = 0; x < TextureSize; x++)
+                    texture.SetPixel(x, y, rowColor);
             }
             texture.Apply();
 
@@ -405,7 +434,7 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
         {
             // Root holds collision only (CharacterController); the visible blocky
             // humanoid lives under a child "Avatar" transform so the two can vary
@@ -420,7 +449,7 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            BuildAvatarVisual(player.transform, bodyMaterial, headMaterial);
+            BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial);
 
             player.AddComponent<SoundEffects>();
 
@@ -445,7 +474,7 @@ namespace Sandbox.EditorTools
             return player;
         }
 
-        private static void BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial)
+        private static void BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
         {
             // Positions/sizes are in the root's local space, which is centered on
             // the CharacterController (center=(0,0,0), height=2) -- so this spans
@@ -453,7 +482,7 @@ namespace Sandbox.EditorTools
             GameObject avatar = new GameObject("Avatar");
             avatar.transform.SetParent(parent, false);
 
-            CreateBodyPart(avatar.transform, "Torso", new Vector3(0f, 0.25f, 0f), new Vector3(0.9f, 0.7f, 0.45f), bodyMaterial);
+            CreateBodyPart(avatar.transform, "Torso", new Vector3(0f, 0.25f, 0f), new Vector3(0.9f, 0.7f, 0.45f), shirtMaterial);
             CreateBodyPart(avatar.transform, "Head", new Vector3(0f, 0.8f, 0f), new Vector3(0.4f, 0.4f, 0.4f), headMaterial);
 
             // Arms/legs hang from a pivot at the joint (shoulder/hip) rather than
