@@ -28,6 +28,9 @@ namespace Sandbox.Player
         private Vector3 verticalVelocity;
         private float footstepTimer;
 
+        public bool IsMoving => moveInput.sqrMagnitude > 0.01f;
+        public bool IsSprinting => sprintHeld;
+
         private void Awake()
         {
             controller = GetComponent<CharacterController>();

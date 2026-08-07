@@ -356,6 +356,7 @@ namespace Sandbox.EditorTools
             player.AddComponent<SoundEffects>();
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
+            player.AddComponent<AvatarAnimator>();
             BuildPlacer placer = player.AddComponent<BuildPlacer>();
             WorldSaveSystem save = player.AddComponent<WorldSaveSystem>();
 
@@ -385,10 +386,14 @@ namespace Sandbox.EditorTools
 
             CreateBodyPart(avatar.transform, "Torso", new Vector3(0f, 0.25f, 0f), new Vector3(0.9f, 0.7f, 0.45f), bodyMaterial);
             CreateBodyPart(avatar.transform, "Head", new Vector3(0f, 0.8f, 0f), new Vector3(0.4f, 0.4f, 0.4f), headMaterial);
-            CreateBodyPart(avatar.transform, "LeftArm", new Vector3(-0.6f, 0.25f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
-            CreateBodyPart(avatar.transform, "RightArm", new Vector3(0.6f, 0.25f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
-            CreateBodyPart(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.55f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
-            CreateBodyPart(avatar.transform, "RightLeg", new Vector3(0.2f, -0.55f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
+
+            // Arms/legs hang from a pivot at the joint (shoulder/hip) rather than
+            // being centered on themselves, so AvatarAnimator can rotate the pivot
+            // for a real hinge swing instead of the limb just rocking in place.
+            CreateLimb(avatar.transform, "LeftArm", new Vector3(-0.6f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            CreateLimb(avatar.transform, "RightArm", new Vector3(0.6f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            CreateLimb(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
+            CreateLimb(avatar.transform, "RightLeg", new Vector3(0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
         }
 
         private static void CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
@@ -404,6 +409,17 @@ namespace Sandbox.EditorTools
             // so a collider here would just be redundant (and could interfere with
             // BuildPlacer's raycasts, which only exclude the root's own layer).
             Object.DestroyImmediate(part.GetComponent<BoxCollider>());
+        }
+
+        private static void CreateLimb(Transform parent, string name, Vector3 pivotLocalPosition, Vector3 limbSize, Material material)
+        {
+            GameObject pivot = new GameObject($"{name}Pivot");
+            pivot.transform.SetParent(parent, false);
+            pivot.transform.localPosition = pivotLocalPosition;
+
+            // The limb hangs below its pivot rather than being centered on it, so
+            // rotating the pivot swings it like a real hinge.
+            CreateBodyPart(pivot.transform, name, new Vector3(0f, -limbSize.y / 2f, 0f), limbSize, material);
         }
 
         private static void BuildCamera(Transform playerTransform)
