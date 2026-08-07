@@ -168,15 +168,22 @@ namespace Sandbox.Building
                 // offset along the hit face's normal lands exactly on the next cell.
                 spawnPosition = hitBlock.transform.position + hit.normal;
             }
-            else
+            else if (hit.collider.GetComponent<Terrain>() != null)
             {
-                // Ground (or any other surface): snap X/Z to the 1x1 cell under the
-                // hit point, but follow the surface's actual height for Y rather
-                // than assuming flat ground at y=0 -- terrain isn't voxel-grid-aligned.
+                // Terrain: snap X/Z to the 1x1 cell under the hit point, but follow
+                // the surface's actual height for Y rather than assuming flat
+                // ground at y=0 -- terrain isn't voxel-grid-aligned.
                 spawnPosition = new Vector3(
                     Mathf.Floor(hit.point.x) + 0.5f,
                     hit.point.y + 0.5f,
                     Mathf.Floor(hit.point.z) + 0.5f);
+            }
+            else
+            {
+                // Any other solid (rock, tree, etc.): not grid-aligned at all, so
+                // just rest the block flush against the hit surface rather than
+                // grid-snapping, which could otherwise leave it floating or sunk.
+                spawnPosition = hit.point + hit.normal * 0.5f;
             }
 
             return true;

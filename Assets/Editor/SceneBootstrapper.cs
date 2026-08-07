@@ -35,8 +35,15 @@ namespace Sandbox.EditorTools
             Material groundMaterial = CreateMaterial("Ground", new Color(0.35f, 0.6f, 0.3f));
             Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
+            Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
+            Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
+            Material leafMaterial = CreateMaterial("Leaves", new Color(0.15f, 0.5f, 0.2f));
 
-            CreateTerrain(groundMaterial);
+            Terrain terrain = CreateTerrain(groundMaterial);
+
+            GameObject rockPrefab = CreateRockPrefab(rockMaterial);
+            GameObject treePrefab = CreateTreePrefab(trunkMaterial, leafMaterial);
+            ScatterEnvironmentProps(terrain, treePrefab, rockPrefab);
 
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
@@ -107,7 +114,7 @@ namespace Sandbox.EditorTools
             return material;
         }
 
-        private static void CreateTerrain(Material material)
+        private static Terrain CreateTerrain(Material material)
         {
             const int resolution = 129; // must be 2^n + 1
             const float worldSize = 120f;
@@ -149,6 +156,81 @@ namespace Sandbox.EditorTools
             Terrain terrain = terrainGo.GetComponent<Terrain>();
             terrain.materialType = Terrain.MaterialType.Custom;
             terrain.materialTemplate = material;
+            return terrain;
+        }
+
+        private static GameObject CreateRockPrefab(Material material)
+        {
+            GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            rock.name = "Rock";
+            rock.GetComponent<Renderer>().sharedMaterial = material;
+            // Irregular base scale for a boulder-ish look; ScatterEnvironmentProps
+            // layers a further random uniform scale on top per instance.
+            rock.transform.localScale = new Vector3(1f, 0.75f, 0.9f);
+
+            Directory.CreateDirectory(PrefabsFolder);
+            string path = $"{PrefabsFolder}/Rock.prefab";
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(rock, path, out bool success);
+            Object.DestroyImmediate(rock);
+            if (!success)
+                Debug.LogError("SceneBootstrapper: failed to save Rock prefab");
+            return prefab;
+        }
+
+        private static GameObject CreateTreePrefab(Material trunkMaterial, Material leafMaterial)
+        {
+            GameObject root = new GameObject("Tree");
+
+            GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            trunk.name = "Trunk";
+            trunk.transform.SetParent(root.transform, false);
+            trunk.transform.localPosition = new Vector3(0f, 1f, 0f);
+            trunk.transform.localScale = new Vector3(0.3f, 1f, 0.3f);
+            trunk.GetComponent<Renderer>().sharedMaterial = trunkMaterial;
+
+            GameObject leaves = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            leaves.name = "Leaves";
+            leaves.transform.SetParent(root.transform, false);
+            leaves.transform.localPosition = new Vector3(0f, 2.6f, 0f);
+            leaves.transform.localScale = new Vector3(1.6f, 1.6f, 1.6f);
+            leaves.GetComponent<Renderer>().sharedMaterial = leafMaterial;
+
+            Directory.CreateDirectory(PrefabsFolder);
+            string path = $"{PrefabsFolder}/Tree.prefab";
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, path, out bool success);
+            Object.DestroyImmediate(root);
+            if (!success)
+                Debug.LogError("SceneBootstrapper: failed to save Tree prefab");
+            return prefab;
+        }
+
+        private static void ScatterEnvironmentProps(Terrain terrain, GameObject treePrefab, GameObject rockPrefab)
+        {
+            const float worldSize = 120f;
+            const float clearRadius = 20f; // keep the flat spawn/build area free of scenery
+
+            GameObject environment = new GameObject("Environment");
+
+            ScatterProps(environment.transform, treePrefab, 40, worldSize, clearRadius, terrain, 0.8f, 1.3f);
+            ScatterProps(environment.transform, rockPrefab, 50, worldSize, clearRadius, terrain, 0.5f, 1.2f);
+        }
+
+        private static void ScatterProps(Transform parent, GameObject prefab, int count, float worldSize, float clearRadius, Terrain terrain, float minScale, float maxScale)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float x, z;
+                do
+                {
+                    x = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
+                    z = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
+                } while (new Vector2(x, z).magnitude < clearRadius);
+
+                float y = terrain.SampleHeight(new Vector3(x, 0f, z));
+                Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
+                GameObject instance = Object.Instantiate(prefab, new Vector3(x, y, z), rotation, parent);
+                instance.transform.localScale *= UnityEngine.Random.Range(minScale, maxScale);
+            }
         }
 
         // Order matters: BuildPlacer/WorldSaveSystem index into this array by
