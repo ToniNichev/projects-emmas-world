@@ -10,7 +10,7 @@ namespace Sandbox.Save
     public class WorldSaveSystem : MonoBehaviour
     {
         [SerializeField] private Transform blockParent;
-        [SerializeField] private GameObject blockPrefab;
+        [SerializeField] private GameObject[] blockPrefabs;
         [SerializeField] private string saveFileName = "world.json";
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
@@ -59,7 +59,8 @@ namespace Sandbox.Save
                 data.blocks.Add(new BlockData
                 {
                     position = block.transform.position,
-                    rotation = block.transform.rotation.eulerAngles
+                    rotation = block.transform.rotation.eulerAngles,
+                    shapeIndex = block.ShapeIndex
                 });
             }
 
@@ -81,8 +82,9 @@ namespace Sandbox.Save
             WorldData data = JsonUtility.FromJson<WorldData>(File.ReadAllText(SavePath));
             foreach (BlockData block in data.blocks)
             {
-                GameObject instance = Instantiate(blockPrefab, block.position, Quaternion.Euler(block.rotation), blockParent);
-                instance.AddComponent<PlacedBlock>();
+                int shapeIndex = Mathf.Clamp(block.shapeIndex, 0, blockPrefabs.Length - 1);
+                GameObject instance = Instantiate(blockPrefabs[shapeIndex], block.position, Quaternion.Euler(block.rotation), blockParent);
+                instance.AddComponent<PlacedBlock>().ShapeIndex = shapeIndex;
             }
 
             Debug.Log($"Loaded {data.blocks.Count} blocks from {SavePath}");
@@ -99,6 +101,7 @@ namespace Sandbox.Save
         {
             public Vector3 position;
             public Vector3 rotation;
+            public int shapeIndex;
         }
     }
 }

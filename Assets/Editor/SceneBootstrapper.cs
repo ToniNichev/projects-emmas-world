@@ -5,6 +5,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
+using UnityEngine.ProBuilder;
 using Unity.Cinemachine;
 using Sandbox.Player;
 using Sandbox.Building;
@@ -17,7 +18,7 @@ namespace Sandbox.EditorTools
     {
         private const string InputActionsPath = "Assets/Settings/PlayerControls.inputactions";
         private const string ScenePath = "Assets/Scenes/Sandbox.unity";
-        private const string PrefabPath = "Assets/Prefabs/Block.prefab";
+        private const string PrefabsFolder = "Assets/Prefabs";
         private const string PlayerLayerName = "Player";
         private const string MaterialsFolder = "Assets/Materials";
 
@@ -38,10 +39,10 @@ namespace Sandbox.EditorTools
             ground.transform.localScale = new Vector3(5f, 1f, 5f);
             ground.GetComponent<Renderer>().sharedMaterial = groundMaterial;
 
-            GameObject blockPrefab = CreateBlockPrefab(blockMaterial);
+            GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
-            GameObject player = BuildPlayer(actions, blockPrefab, placedBlocks.transform, playerMaterial);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial);
             BuildCamera(player.transform);
 
             GameObject lightGo = new GameObject("Directional Light");
@@ -79,6 +80,11 @@ namespace Sandbox.EditorTools
             map.AddAction("Save", InputActionType.Button, binding: "<Keyboard>/f5");
             map.AddAction("Load", InputActionType.Button, binding: "<Keyboard>/f9");
 
+            InputAction selectShape = map.AddAction("SelectShape", InputActionType.Button, binding: "<Keyboard>/1");
+            selectShape.AddBinding("<Keyboard>/2");
+            selectShape.AddBinding("<Keyboard>/3");
+            selectShape.AddBinding("<Keyboard>/4");
+
             string json = asset.ToJson();
             Object.DestroyImmediate(asset);
 
@@ -100,20 +106,103 @@ namespace Sandbox.EditorTools
             return material;
         }
 
-        private static GameObject CreateBlockPrefab(Material material)
+        // Order matters: BuildPlacer/WorldSaveSystem index into this array by
+        // shape index (0=Cube, 1=Wedge, 2=Cylinder, 3=Ball), selected via the 1-4 keys.
+        private static GameObject[] CreateShapePrefabs(Material material)
         {
-            GameObject source = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            source.name = "Block";
+            Directory.CreateDirectory(PrefabsFolder);
+
+            return new[]
+            {
+                SaveShapePrefab("Block", GameObject.CreatePrimitive(PrimitiveType.Cube), material),
+                SaveShapePrefab("Wedge", CreateWedgeSource(), material),
+                SaveShapePrefab("Cylinder", CreateCylinderSource(), material),
+                SaveShapePrefab("Ball", GameObject.CreatePrimitive(PrimitiveType.Sphere), material),
+            };
+        }
+
+        private static GameObject SaveShapePrefab(string name, GameObject source, Material material)
+        {
+            source.name = name;
             source.GetComponent<Renderer>().sharedMaterial = material;
-            Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath)!);
-            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(source, PrefabPath, out bool success);
+
+            string path = $"{PrefabsFolder}/{name}.prefab";
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(source, path, out bool success);
             Object.DestroyImmediate(source);
             if (!success)
-                Debug.LogError("SceneBootstrapper: failed to save Block prefab");
+                Debug.LogError($"SceneBootstrapper: failed to save {name} prefab");
             return prefab;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject blockPrefab, Transform blockParent, Material playerMaterial)
+        private static GameObject CreateCylinderSource()
+        {
+            GameObject source = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            // Default cylinder is height 2 (spans y -1..1); halve it to fit the 1x1x1 grid cell.
+            source.transform.localScale = new Vector3(1f, 0.5f, 1f);
+            Object.DestroyImmediate(source.GetComponent<CapsuleCollider>());
+            MeshCollider collider = source.AddComponent<MeshCollider>();
+            // Script-added MeshCollider doesn't auto-populate sharedMesh from the
+            // sibling MeshFilter the way the Editor's "Add Component" button does.
+            collider.sharedMesh = source.GetComponent<MeshFilter>().sharedMesh;
+            collider.convex = true;
+            return source;
+        }
+
+        private static GameObject CreateWedgeSource()
+        {
+            // Adapted from ProBuilder's ShapeGenerator.GeneratePrism, which builds a
+            // symmetric tent (ridge centered at x=0). Moving the ridge to x=+0.5
+            // collapses one slope into the wedge's flat vertical back face and turns
+            // the other into a single full ramp -- while keeping the exact same
+            // vertex winding order as the proven, shipped template.
+            Vector3[] template =
+            {
+                new Vector3(-0.5f, 0f,   -0.5f), // 0 back-left-bottom
+                new Vector3(0.5f,  0f,   -0.5f), // 1 back-right-bottom
+                new Vector3(0.5f,  0.5f, -0.5f), // 2 back-ridge (was x=0)
+                new Vector3(-0.5f, 0f,    0.5f), // 3 front-left-bottom
+                new Vector3(0.5f,  0f,    0.5f), // 4 front-right-bottom
+                new Vector3(0.5f,  0.5f,  0.5f), // 5 front-ridge (was x=0)
+            };
+
+            Vector3[] v =
+            {
+                template[0], template[1], template[2],                         // 0-2  right-side triangular cap
+                template[1], template[4], template[2], template[5],            // 3-6  back vertical face
+                template[4], template[3], template[5],                         // 7-9  left-side triangular cap
+                template[3], template[0], template[5], template[2],            // 10-13 ramp surface
+                template[0], template[1], template[3], template[4],            // 14-17 bottom
+            };
+
+            Face[] faces =
+            {
+                new Face(new[] { 2, 1, 0 }),
+                new Face(new[] { 5, 4, 3, 5, 6, 4 }),
+                new Face(new[] { 9, 8, 7 }),
+                new Face(new[] { 12, 11, 10, 12, 13, 11 }),
+                new Face(new[] { 14, 15, 16, 15, 17, 16 }),
+            };
+
+            ProBuilderMesh pb = ProBuilderMesh.Create(v, faces);
+            pb.ToMesh();
+            pb.Refresh();
+
+            Mesh mesh = pb.GetComponent<MeshFilter>().sharedMesh;
+            Directory.CreateDirectory(PrefabsFolder);
+            AssetDatabase.CreateAsset(mesh, $"{PrefabsFolder}/WedgeMesh.asset");
+
+            GameObject source = new GameObject("Wedge");
+            source.AddComponent<MeshFilter>().sharedMesh = mesh;
+            source.AddComponent<MeshRenderer>();
+            MeshCollider collider = source.AddComponent<MeshCollider>();
+            collider.sharedMesh = mesh;
+            collider.convex = true;
+
+            Object.DestroyImmediate(pb.gameObject);
+            return source;
+        }
+
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material playerMaterial)
         {
             GameObject player = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             player.name = "Player";
@@ -131,13 +220,13 @@ namespace Sandbox.EditorTools
             SetPrivateField(placer, "actions", actions);
             SetPrivateField(save, "actions", actions);
 
-            SetPrivateField(placer, "blockPrefab", blockPrefab);
+            SetPrivateField(placer, "blockPrefabs", blockPrefabs);
             SetPrivateField(placer, "blockParent", blockParent);
             int playerLayerIndex = LayerMask.NameToLayer(PlayerLayerName);
             LayerMask placementMask = ~(1 << playerLayerIndex);
             SetPrivateField(placer, "placementMask", placementMask);
 
-            SetPrivateField(save, "blockPrefab", blockPrefab);
+            SetPrivateField(save, "blockPrefabs", blockPrefabs);
             SetPrivateField(save, "blockParent", blockParent);
 
             return player;

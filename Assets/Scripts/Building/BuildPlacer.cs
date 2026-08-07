@@ -7,7 +7,7 @@ namespace Sandbox.Building
     public class BuildPlacer : MonoBehaviour
     {
         [SerializeField] private Camera placementCamera;
-        [SerializeField] private GameObject blockPrefab;
+        [SerializeField] private GameObject[] blockPrefabs;
         [SerializeField] private float maxPlaceDistance = 25f;
         [SerializeField] private LayerMask placementMask = ~0;
         [SerializeField] private Transform blockParent;
@@ -15,38 +15,41 @@ namespace Sandbox.Building
         [SerializeField] private string actionMapName = "Player";
 
         private GameObject previewGhost;
+        private int selectedShapeIndex;
         private InputAction placeAction;
         private InputAction removeAction;
+        private InputAction selectShapeAction;
+
+        private GameObject SelectedPrefab => blockPrefabs[selectedShapeIndex];
 
         private void Awake()
         {
             if (placementCamera == null)
                 placementCamera = Camera.main;
 
-            if (blockPrefab != null)
-            {
-                previewGhost = Instantiate(blockPrefab);
-                SetGhostAppearance(previewGhost);
-                previewGhost.SetActive(false);
-            }
+            RebuildGhost();
 
             InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
             placeAction = map.FindAction("Place", throwIfNotFound: true);
             removeAction = map.FindAction("Remove", throwIfNotFound: true);
+            selectShapeAction = map.FindAction("SelectShape", throwIfNotFound: true);
         }
 
         private void OnEnable()
         {
             placeAction.performed += OnPlace;
             removeAction.performed += OnRemove;
+            selectShapeAction.performed += OnSelectShape;
             placeAction.Enable();
             removeAction.Enable();
+            selectShapeAction.Enable();
         }
 
         private void OnDisable()
         {
             placeAction.performed -= OnPlace;
             removeAction.performed -= OnRemove;
+            selectShapeAction.performed -= OnSelectShape;
         }
 
         private void Update()
@@ -78,12 +81,38 @@ namespace Sandbox.Building
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
-            GameObject block = Instantiate(blockPrefab, spawnPosition, Quaternion.identity, blockParent);
-            block.AddComponent<PlacedBlock>();
+            GameObject block = Instantiate(SelectedPrefab, spawnPosition, Quaternion.identity, blockParent);
+            block.AddComponent<PlacedBlock>().ShapeIndex = selectedShapeIndex;
 
             Renderer blockRenderer = block.GetComponent<Renderer>();
             if (blockRenderer != null)
                 blockRenderer.material.color = Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
+        }
+
+        private void OnSelectShape(InputAction.CallbackContext context)
+        {
+            if (!int.TryParse(context.control.name, out int number))
+                return;
+
+            int index = number - 1;
+            if (index < 0 || index >= blockPrefabs.Length || blockPrefabs[index] == null)
+                return;
+
+            selectedShapeIndex = index;
+            RebuildGhost();
+        }
+
+        private void RebuildGhost()
+        {
+            if (previewGhost != null)
+                Destroy(previewGhost);
+
+            if (blockPrefabs == null || blockPrefabs.Length == 0 || SelectedPrefab == null)
+                return;
+
+            previewGhost = Instantiate(SelectedPrefab);
+            SetGhostAppearance(previewGhost);
+            previewGhost.SetActive(false);
         }
 
         private void OnRemove(InputAction.CallbackContext context)
