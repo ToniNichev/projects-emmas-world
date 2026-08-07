@@ -159,14 +159,19 @@ namespace Sandbox.EditorTools
             // collapses one slope into the wedge's flat vertical back face and turns
             // the other into a single full ramp -- while keeping the exact same
             // vertex winding order as the proven, shipped template.
+            //
+            // Y values are -0.5 (bottom) / +0.5 (ridge) so the wedge is centered and
+            // spans a full 1x1x1 bounding box, matching Cube/Cylinder/Ball -- the
+            // ground/adjacency placement math in BuildPlacer assumes every prefab
+            // shares that same centered-pivot convention.
             Vector3[] template =
             {
-                new Vector3(-0.5f, 0f,   -0.5f), // 0 back-left-bottom
-                new Vector3(0.5f,  0f,   -0.5f), // 1 back-right-bottom
-                new Vector3(0.5f,  0.5f, -0.5f), // 2 back-ridge (was x=0)
-                new Vector3(-0.5f, 0f,    0.5f), // 3 front-left-bottom
-                new Vector3(0.5f,  0f,    0.5f), // 4 front-right-bottom
-                new Vector3(0.5f,  0.5f,  0.5f), // 5 front-ridge (was x=0)
+                new Vector3(-0.5f, -0.5f, -0.5f), // 0 back-left-bottom
+                new Vector3(0.5f,  -0.5f, -0.5f), // 1 back-right-bottom
+                new Vector3(0.5f,   0.5f, -0.5f), // 2 back-ridge
+                new Vector3(-0.5f, -0.5f,  0.5f), // 3 front-left-bottom
+                new Vector3(0.5f,  -0.5f,  0.5f), // 4 front-right-bottom
+                new Vector3(0.5f,   0.5f,  0.5f), // 5 front-ridge
             };
 
             Vector3[] v =
