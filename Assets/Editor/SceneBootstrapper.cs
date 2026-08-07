@@ -21,6 +21,7 @@ namespace Sandbox.EditorTools
         private const string InputActionsPath = "Assets/Settings/PlayerControls.inputactions";
         private const string ScenePath = "Assets/Scenes/Sandbox.unity";
         private const string PrefabsFolder = "Assets/Prefabs";
+        private const string TerrainFolder = "Assets/Terrain";
         private const string PlayerLayerName = "Player";
         private const string MaterialsFolder = "Assets/Materials";
 
@@ -35,11 +36,7 @@ namespace Sandbox.EditorTools
             Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
 
-            GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            ground.name = "Ground";
-            ground.transform.position = Vector3.zero;
-            ground.transform.localScale = new Vector3(5f, 1f, 5f);
-            ground.GetComponent<Renderer>().sharedMaterial = groundMaterial;
+            CreateTerrain(groundMaterial);
 
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
@@ -108,6 +105,50 @@ namespace Sandbox.EditorTools
             var material = new Material(Shader.Find("Standard")) { name = name, color = color };
             AssetDatabase.CreateAsset(material, path);
             return material;
+        }
+
+        private static void CreateTerrain(Material material)
+        {
+            const int resolution = 129; // must be 2^n + 1
+            const float worldSize = 120f;
+            const float maxHeight = 6f;
+            const float noiseScale = 0.045f;
+            const float flatRadius = resolution * 0.14f;   // fully flat around spawn
+            const float falloffRadius = resolution * 0.35f; // blends into full hills
+
+            var terrainData = new TerrainData
+            {
+                heightmapResolution = resolution,
+                size = new Vector3(worldSize, maxHeight, worldSize),
+            };
+
+            Vector2 center = new Vector2(resolution / 2f, resolution / 2f);
+            float noiseOffsetX = 137.2f;
+            float noiseOffsetZ = 291.7f;
+
+            float[,] heights = new float[resolution, resolution];
+            for (int z = 0; z < resolution; z++)
+            {
+                for (int x = 0; x < resolution; x++)
+                {
+                    float noise = Mathf.PerlinNoise((x + noiseOffsetX) * noiseScale, (z + noiseOffsetZ) * noiseScale);
+                    float distFromCenter = Vector2.Distance(new Vector2(x, z), center);
+                    float falloff = Mathf.Clamp01(Mathf.InverseLerp(flatRadius, falloffRadius, distFromCenter));
+                    heights[z, x] = noise * falloff;
+                }
+            }
+            terrainData.SetHeights(0, 0, heights);
+
+            Directory.CreateDirectory(TerrainFolder);
+            AssetDatabase.CreateAsset(terrainData, $"{TerrainFolder}/GroundTerrainData.asset");
+
+            GameObject terrainGo = Terrain.CreateTerrainGameObject(terrainData);
+            terrainGo.name = "Ground";
+            terrainGo.transform.position = new Vector3(-worldSize / 2f, 0f, -worldSize / 2f);
+
+            Terrain terrain = terrainGo.GetComponent<Terrain>();
+            terrain.materialType = Terrain.MaterialType.Custom;
+            terrain.materialTemplate = material;
         }
 
         // Order matters: BuildPlacer/WorldSaveSystem index into this array by

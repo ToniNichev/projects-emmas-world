@@ -170,11 +170,12 @@ namespace Sandbox.Building
             }
             else
             {
-                // Ground (or any other surface): snap to the 1x1 cell under the
-                // hit point and rest the block on top of it.
+                // Ground (or any other surface): snap X/Z to the 1x1 cell under the
+                // hit point, but follow the surface's actual height for Y rather
+                // than assuming flat ground at y=0 -- terrain isn't voxel-grid-aligned.
                 spawnPosition = new Vector3(
                     Mathf.Floor(hit.point.x) + 0.5f,
-                    0.5f,
+                    hit.point.y + 0.5f,
                     Mathf.Floor(hit.point.z) + 0.5f);
             }
 
