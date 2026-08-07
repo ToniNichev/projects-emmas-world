@@ -19,13 +19,16 @@ namespace Sandbox.Building
 
         private GameObject previewGhost;
         private int selectedShapeIndex;
+        private int rotationSteps;
         private InputAction placeAction;
         private InputAction removeAction;
         private InputAction selectShapeAction;
+        private InputAction rotateAction;
 
         public int SelectedShapeIndex => selectedShapeIndex;
 
         private GameObject SelectedPrefab => blockPrefabs[selectedShapeIndex];
+        private Quaternion CurrentRotation => Quaternion.Euler(0f, rotationSteps * 90f, 0f);
 
         private void Awake()
         {
@@ -38,6 +41,7 @@ namespace Sandbox.Building
             placeAction = map.FindAction("Place", throwIfNotFound: true);
             removeAction = map.FindAction("Remove", throwIfNotFound: true);
             selectShapeAction = map.FindAction("SelectShape", throwIfNotFound: true);
+            rotateAction = map.FindAction("Rotate", throwIfNotFound: true);
         }
 
         private void OnEnable()
@@ -45,9 +49,11 @@ namespace Sandbox.Building
             placeAction.performed += OnPlace;
             removeAction.performed += OnRemove;
             selectShapeAction.performed += OnSelectShape;
+            rotateAction.performed += OnRotate;
             placeAction.Enable();
             removeAction.Enable();
             selectShapeAction.Enable();
+            rotateAction.Enable();
         }
 
         private void OnDisable()
@@ -55,6 +61,7 @@ namespace Sandbox.Building
             placeAction.performed -= OnPlace;
             removeAction.performed -= OnRemove;
             selectShapeAction.performed -= OnSelectShape;
+            rotateAction.performed -= OnRotate;
         }
 
         private void Update()
@@ -71,6 +78,7 @@ namespace Sandbox.Building
             {
                 previewGhost.SetActive(true);
                 previewGhost.transform.position = spawnPosition;
+                previewGhost.transform.rotation = CurrentRotation;
             }
             else
             {
@@ -86,7 +94,7 @@ namespace Sandbox.Building
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
-            GameObject block = Instantiate(SelectedPrefab, spawnPosition, Quaternion.identity, blockParent);
+            GameObject block = Instantiate(SelectedPrefab, spawnPosition, CurrentRotation, blockParent);
             block.AddComponent<PlacedBlock>().ShapeIndex = selectedShapeIndex;
 
             Renderer blockRenderer = block.GetComponent<Renderer>();
@@ -106,6 +114,14 @@ namespace Sandbox.Building
             selectedShapeIndex = index;
             RebuildGhost();
             ShapeSelected?.Invoke(selectedShapeIndex);
+        }
+
+        private void OnRotate(InputAction.CallbackContext context)
+        {
+            if (!context.performed)
+                return;
+
+            rotationSteps = (rotationSteps + 1) % 4;
         }
 
         private void RebuildGhost()
