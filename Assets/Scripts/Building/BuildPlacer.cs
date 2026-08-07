@@ -8,7 +8,7 @@ namespace Sandbox.Building
     {
         [SerializeField] private Camera placementCamera;
         [SerializeField] private GameObject blockPrefab;
-        [SerializeField] private float maxPlaceDistance = 8f;
+        [SerializeField] private float maxPlaceDistance = 25f;
         [SerializeField] private LayerMask placementMask = ~0;
         [SerializeField] private Transform blockParent;
         [SerializeField] private InputActionAsset actions;
@@ -59,10 +59,10 @@ namespace Sandbox.Building
             if (previewGhost == null)
                 return;
 
-            if (TryGetPlacementPoint(out Vector3 point, out _))
+            if (TryGetPlacementPoint(out Vector3 spawnPosition))
             {
                 previewGhost.SetActive(true);
-                previewGhost.transform.position = SnapToGrid(point);
+                previewGhost.transform.position = spawnPosition;
             }
             else
             {
@@ -75,11 +75,10 @@ namespace Sandbox.Building
             if (!context.performed)
                 return;
 
-            if (!TryGetPlacementPoint(out Vector3 point, out _))
+            if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
-            Vector3 spawnPos = SnapToGrid(point);
-            GameObject block = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blockParent);
+            GameObject block = Instantiate(blockPrefab, spawnPosition, Quaternion.identity, blockParent);
             block.AddComponent<PlacedBlock>();
 
             Renderer blockRenderer = block.GetComponent<Renderer>();
@@ -100,31 +99,35 @@ namespace Sandbox.Building
             }
         }
 
-        private bool TryGetPlacementPoint(out Vector3 point, out Vector3 normal)
+        private bool TryGetPlacementPoint(out Vector3 spawnPosition)
         {
-            point = Vector3.zero;
-            normal = Vector3.up;
+            spawnPosition = Vector3.zero;
 
             if (placementCamera == null)
                 return false;
 
             Ray ray = placementCamera.ScreenPointToRay(GetPointerScreenPosition());
-            if (Physics.Raycast(ray, out RaycastHit hit, maxPlaceDistance, placementMask))
+            if (!Physics.Raycast(ray, out RaycastHit hit, maxPlaceDistance, placementMask))
+                return false;
+
+            PlacedBlock hitBlock = hit.collider.GetComponent<PlacedBlock>();
+            if (hitBlock != null)
             {
-                point = hit.point + hit.normal * 0.5f;
-                normal = hit.normal;
-                return true;
+                // Existing blocks are always exactly grid-aligned, so a one-unit
+                // offset along the hit face's normal lands exactly on the next cell.
+                spawnPosition = hitBlock.transform.position + hit.normal;
+            }
+            else
+            {
+                // Ground (or any other surface): snap to the 1x1 cell under the
+                // hit point and rest the block on top of it.
+                spawnPosition = new Vector3(
+                    Mathf.Floor(hit.point.x) + 0.5f,
+                    0.5f,
+                    Mathf.Floor(hit.point.z) + 0.5f);
             }
 
-            return false;
-        }
-
-        private static Vector3 SnapToGrid(Vector3 position, float gridSize = 1f)
-        {
-            return new Vector3(
-                Mathf.Round(position.x / gridSize) * gridSize,
-                Mathf.Round(position.y / gridSize) * gridSize,
-                Mathf.Round(position.z / gridSize) * gridSize);
+            return true;
         }
 
         private static Vector2 GetPointerScreenPosition()
