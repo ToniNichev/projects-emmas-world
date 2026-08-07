@@ -19,6 +19,7 @@ namespace Sandbox.EditorTools
         private const string ScenePath = "Assets/Scenes/Sandbox.unity";
         private const string PrefabPath = "Assets/Prefabs/Block.prefab";
         private const string PlayerLayerName = "Player";
+        private const string MaterialsFolder = "Assets/Materials";
 
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
@@ -27,15 +28,20 @@ namespace Sandbox.EditorTools
             InputActionAsset actions = BuildInputActions();
             EnsureLayerExists(PlayerLayerName);
 
+            Material groundMaterial = CreateMaterial("Ground", new Color(0.35f, 0.6f, 0.3f));
+            Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
+            Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
+
             GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.position = Vector3.zero;
             ground.transform.localScale = new Vector3(5f, 1f, 5f);
+            ground.GetComponent<Renderer>().sharedMaterial = groundMaterial;
 
-            GameObject blockPrefab = CreateBlockPrefab();
+            GameObject blockPrefab = CreateBlockPrefab(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
-            GameObject player = BuildPlayer(actions, blockPrefab, placedBlocks.transform);
+            GameObject player = BuildPlayer(actions, blockPrefab, placedBlocks.transform, playerMaterial);
             BuildCamera(actions, player.transform);
 
             GameObject lightGo = new GameObject("Directional Light");
@@ -94,10 +100,20 @@ namespace Sandbox.EditorTools
                 .FirstOrDefault(r => r.action != null && r.action.actionMap.name == mapName && r.action.name == actionName);
         }
 
-        private static GameObject CreateBlockPrefab()
+        private static Material CreateMaterial(string name, Color color)
+        {
+            Directory.CreateDirectory(MaterialsFolder);
+            string path = $"{MaterialsFolder}/{name}.mat";
+            var material = new Material(Shader.Find("Standard")) { name = name, color = color };
+            AssetDatabase.CreateAsset(material, path);
+            return material;
+        }
+
+        private static GameObject CreateBlockPrefab(Material material)
         {
             GameObject source = GameObject.CreatePrimitive(PrimitiveType.Cube);
             source.name = "Block";
+            source.GetComponent<Renderer>().sharedMaterial = material;
             Directory.CreateDirectory(Path.GetDirectoryName(PrefabPath)!);
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(source, PrefabPath, out bool success);
             Object.DestroyImmediate(source);
@@ -106,11 +122,12 @@ namespace Sandbox.EditorTools
             return prefab;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject blockPrefab, Transform blockParent)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject blockPrefab, Transform blockParent, Material playerMaterial)
         {
             GameObject player = GameObject.CreatePrimitive(PrimitiveType.Capsule);
             player.name = "Player";
             player.transform.position = new Vector3(0f, 1f, 0f);
+            player.GetComponent<Renderer>().sharedMaterial = playerMaterial;
             Object.DestroyImmediate(player.GetComponent<CapsuleCollider>());
             player.layer = LayerMask.NameToLayer(PlayerLayerName);
             player.AddComponent<CharacterController>();

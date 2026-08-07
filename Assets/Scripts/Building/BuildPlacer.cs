@@ -81,6 +81,10 @@ namespace Sandbox.Building
             Vector3 spawnPos = SnapToGrid(point);
             GameObject block = Instantiate(blockPrefab, spawnPos, Quaternion.identity, blockParent);
             block.AddComponent<PlacedBlock>();
+
+            Renderer blockRenderer = block.GetComponent<Renderer>();
+            if (blockRenderer != null)
+                blockRenderer.material.color = Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
         }
 
         private void OnRemove(InputAction.CallbackContext context)
