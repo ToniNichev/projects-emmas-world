@@ -6,11 +6,13 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.ProBuilder;
+using UnityEngine.UI;
 using Unity.Cinemachine;
 using Sandbox.Player;
 using Sandbox.Building;
 using Sandbox.Save;
 using Sandbox.CameraControl;
+using Sandbox.UI;
 
 namespace Sandbox.EditorTools
 {
@@ -44,6 +46,7 @@ namespace Sandbox.EditorTools
 
             GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial);
             BuildCamera(player.transform);
+            BuildPaletteUI(player.GetComponent<BuildPlacer>());
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -253,6 +256,76 @@ namespace Sandbox.EditorTools
             mainCamGo.AddComponent<Camera>();
             mainCamGo.AddComponent<AudioListener>();
             mainCamGo.AddComponent<CinemachineBrain>();
+        }
+
+        private static void BuildPaletteUI(BuildPlacer placer)
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            GameObject canvasGo = new GameObject("BuildUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            string[] labels = { "1\nCube", "2\nWedge", "3\nCylinder", "4\nBall" };
+            const float slotSize = 90f;
+            const float spacing = 10f;
+            float totalWidth = labels.Length * slotSize + (labels.Length - 1) * spacing;
+            float startX = -totalWidth / 2f + slotSize / 2f;
+
+            Image[] slots = new Image[labels.Length];
+            for (int i = 0; i < labels.Length; i++)
+            {
+                GameObject slotGo = new GameObject($"Slot_{i}");
+                slotGo.transform.SetParent(canvasGo.transform, false);
+                RectTransform slotRect = slotGo.AddComponent<RectTransform>();
+                slotRect.anchorMin = new Vector2(0.5f, 0f);
+                slotRect.anchorMax = new Vector2(0.5f, 0f);
+                slotRect.pivot = new Vector2(0.5f, 0f);
+                slotRect.sizeDelta = new Vector2(slotSize, slotSize);
+                slotRect.anchoredPosition = new Vector2(startX + i * (slotSize + spacing), 45f);
+
+                Image background = slotGo.AddComponent<Image>();
+                background.color = new Color(0f, 0f, 0f, 0.5f);
+                slots[i] = background;
+
+                GameObject textGo = new GameObject("Label");
+                textGo.transform.SetParent(slotGo.transform, false);
+                RectTransform textRect = textGo.AddComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = Vector2.zero;
+                textRect.offsetMax = Vector2.zero;
+
+                Text text = textGo.AddComponent<Text>();
+                text.text = labels[i];
+                text.font = font;
+                text.fontSize = 16;
+                text.alignment = TextAnchor.MiddleCenter;
+                text.color = Color.white;
+            }
+
+            GameObject hintGo = new GameObject("Hints");
+            hintGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform hintRect = hintGo.AddComponent<RectTransform>();
+            hintRect.anchorMin = new Vector2(0.5f, 0f);
+            hintRect.anchorMax = new Vector2(0.5f, 0f);
+            hintRect.pivot = new Vector2(0.5f, 0f);
+            hintRect.sizeDelta = new Vector2(900f, 30f);
+            hintRect.anchoredPosition = new Vector2(0f, 10f);
+
+            Text hintText = hintGo.AddComponent<Text>();
+            hintText.text = "1-4 Select Shape   |   LMB Place   |   Q Remove   |   RMB+Drag Look   |   F5 Save   |   F9 Load";
+            hintText.font = font;
+            hintText.fontSize = 14;
+            hintText.alignment = TextAnchor.MiddleCenter;
+            hintText.color = Color.white;
+
+            BuildPaletteUI paletteUi = canvasGo.AddComponent<BuildPaletteUI>();
+            SetPrivateField(paletteUi, "buildPlacer", placer);
+            SetPrivateField(paletteUi, "slotBackgrounds", slots);
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Sandbox.Save;
@@ -14,11 +15,15 @@ namespace Sandbox.Building
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
 
+        public event Action<int> ShapeSelected;
+
         private GameObject previewGhost;
         private int selectedShapeIndex;
         private InputAction placeAction;
         private InputAction removeAction;
         private InputAction selectShapeAction;
+
+        public int SelectedShapeIndex => selectedShapeIndex;
 
         private GameObject SelectedPrefab => blockPrefabs[selectedShapeIndex];
 
@@ -86,7 +91,7 @@ namespace Sandbox.Building
 
             Renderer blockRenderer = block.GetComponent<Renderer>();
             if (blockRenderer != null)
-                blockRenderer.material.color = Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
+                blockRenderer.material.color = UnityEngine.Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
         }
 
         private void OnSelectShape(InputAction.CallbackContext context)
@@ -100,6 +105,7 @@ namespace Sandbox.Building
 
             selectedShapeIndex = index;
             RebuildGhost();
+            ShapeSelected?.Invoke(selectedShapeIndex);
         }
 
         private void RebuildGhost()
