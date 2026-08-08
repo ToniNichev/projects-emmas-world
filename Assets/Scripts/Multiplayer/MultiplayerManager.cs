@@ -202,8 +202,9 @@ namespace Sandbox.Multiplayer
             if (data == null)
                 return;
 
-            EnsureRemoteAvatar(data.user_id);
-            remoteTargetPositions[data.user_id] = new Vector3(data.x, data.y, data.z);
+            Vector3 pos = new Vector3(data.x, data.y, data.z);
+            EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
+            remoteTargetPositions[data.user_id] = pos;
             remoteTargetRotations[data.user_id] = data.rotation_y;
         }
 
@@ -215,12 +216,10 @@ namespace Sandbox.Multiplayer
 
             foreach (MoveEvent data in wrapper.items)
             {
-                EnsureRemoteAvatar(data.user_id);
                 Vector3 pos = new Vector3(data.x, data.y, data.z);
+                EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
                 remoteTargetPositions[data.user_id] = pos;
                 remoteTargetRotations[data.user_id] = data.rotation_y;
-                if (remoteAvatars.TryGetValue(data.user_id, out GameObject avatar))
-                    avatar.transform.position = pos;
             }
         }
 
@@ -259,14 +258,23 @@ namespace Sandbox.Multiplayer
 
         // ----- Helpers -----
 
-        private void EnsureRemoteAvatar(int userId)
+        // Spawns at the correct spot immediately rather than at the default
+        // (0,0,0) and drifting there via the per-frame Lerp in
+        // SmoothRemoteAvatars -- otherwise every newly-seen remote player's
+        // avatar visibly pops in at the world origin (likely underground,
+        // given the terrain) before sliding to where they actually are.
+        private GameObject EnsureRemoteAvatar(int userId, Vector3 position, float rotationY)
         {
-            if (remoteAvatars.ContainsKey(userId) || remoteAvatarPrefab == null)
-                return;
+            if (remoteAvatars.TryGetValue(userId, out GameObject existing) && existing != null)
+                return existing;
 
-            GameObject avatar = Instantiate(remoteAvatarPrefab);
+            if (remoteAvatarPrefab == null)
+                return null;
+
+            GameObject avatar = Instantiate(remoteAvatarPrefab, position, Quaternion.Euler(0f, rotationY, 0f));
             avatar.name = $"RemotePlayer_{userId}";
             remoteAvatars[userId] = avatar;
+            return avatar;
         }
 
         private void SpawnNetworkedBlock(BlockEvent data)
