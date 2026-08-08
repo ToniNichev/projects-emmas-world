@@ -12,7 +12,13 @@ namespace Sandbox.UI
     [RequireComponent(typeof(Image))]
     public class AlphaHitTestSetter : MonoBehaviour
     {
-        [SerializeField] private float threshold = 0.5f;
+        // Low, not 0.5 -- the corner-button sprite's solid areas are
+        // deliberately translucent (alpha ~0.4, to match the joystick ring's
+        // own translucent look), so a 0.5 threshold would reject every
+        // click everywhere on the button, not just its transparent cutout.
+        // Just needs to be comfortably above 0 (fully transparent gaps) and
+        // below whatever alpha the visible shape actually renders at.
+        [SerializeField] private float threshold = 0.05f;
 
         private void Awake()
         {

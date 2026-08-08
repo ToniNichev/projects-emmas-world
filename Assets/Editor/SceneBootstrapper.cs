@@ -1152,20 +1152,23 @@ namespace Sandbox.EditorTools
             // wiring an onClick entry in the Inspector, which does save.
             UnityEventTools.AddPersistentListener(button.onClick, onClick);
 
-            // Icon stays unflipped/upright (unlike Shape) and is anchored to
-            // the outer corner -- away from the joystick -- then inset
-            // slightly, since that's where this wedge shape's visible area
-            // is actually concentrated (the joystick-side corner is cut
-            // away).
+            // Icon stays unflipped/upright (unlike Shape) and is centered
+            // (pivot 0.5,0.5, not the corner) on a point inset from the
+            // outer corner -- away from the joystick -- since that's where
+            // this wedge shape's visible area is actually concentrated (the
+            // joystick-side corner is cut away). Using a corner pivot here
+            // previously left the icon's own half-size unaccounted for, so
+            // its center landed inside the cutout instead of the visible
+            // triangle.
             GameObject iconGo = new GameObject("Icon");
             iconGo.transform.SetParent(buttonGo.transform, false);
             RectTransform iconRect = iconGo.AddComponent<RectTransform>();
             Vector2 outerCorner = new Vector2(flipX ? 0f : 1f, flipY ? 0f : 1f);
             iconRect.anchorMin = outerCorner;
             iconRect.anchorMax = outerCorner;
-            iconRect.pivot = outerCorner;
+            iconRect.pivot = new Vector2(0.5f, 0.5f);
             iconRect.sizeDelta = new Vector2(46f, 46f);
-            const float inset = 46f;
+            const float inset = 54f;
             iconRect.anchoredPosition = new Vector2(flipX ? inset : -inset, flipY ? inset : -inset);
 
             Image iconImage = iconGo.AddComponent<Image>();
