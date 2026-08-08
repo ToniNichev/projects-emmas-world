@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Sandbox.Audio;
+using Sandbox.Multiplayer;
 using Sandbox.Save;
 
 namespace Sandbox.Building
@@ -26,6 +27,7 @@ namespace Sandbox.Building
         private InputAction selectShapeAction;
         private InputAction rotateAction;
         private SoundEffects soundEffects;
+        private MultiplayerManager multiplayerManager;
 
         public int SelectedShapeIndex => selectedShapeIndex;
 
@@ -38,6 +40,7 @@ namespace Sandbox.Building
                 placementCamera = Camera.main;
 
             soundEffects = GetComponent<SoundEffects>();
+            multiplayerManager = GetComponent<MultiplayerManager>();
 
             RebuildGhost();
 
@@ -98,14 +101,26 @@ namespace Sandbox.Building
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
+            Color color = UnityEngine.Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
+            soundEffects?.PlayPlace();
+
+            if (multiplayerManager != null && multiplayerManager.IsConnected)
+            {
+                // Networked: don't instantiate locally. The block appears once
+                // the emmasworld:block_placed event round-trips back (via
+                // MultiplayerManager), the same way it does for every other
+                // connected client -- avoids needing to reconcile an optimistic
+                // local placement against the server-assigned id.
+                multiplayerManager.RequestPlaceBlock(selectedShapeIndex, spawnPosition, rotationSteps * 90, color);
+                return;
+            }
+
             GameObject block = Instantiate(SelectedPrefab, spawnPosition, CurrentRotation, blockParent);
             block.AddComponent<PlacedBlock>().ShapeIndex = selectedShapeIndex;
 
             Renderer blockRenderer = block.GetComponent<Renderer>();
             if (blockRenderer != null)
-                blockRenderer.material.color = UnityEngine.Random.ColorHSV(0f, 1f, 0.55f, 0.85f, 0.75f, 1f);
-
-            soundEffects?.PlayPlace();
+                blockRenderer.material.color = color;
         }
 
         private void OnSelectShape(InputAction.CallbackContext context)
@@ -151,11 +166,22 @@ namespace Sandbox.Building
             if (Physics.Raycast(placementCamera.ScreenPointToRay(GetPointerScreenPosition()), out RaycastHit hit, maxPlaceDistance, placementMask))
             {
                 PlacedBlock block = hit.collider.GetComponent<PlacedBlock>();
-                if (block != null)
+                if (block == null)
+                    return;
+
+                soundEffects?.PlayRemove();
+
+                if (multiplayerManager != null && multiplayerManager.IsConnected)
                 {
-                    Destroy(block.gameObject);
-                    soundEffects?.PlayRemove();
+                    // Networked: wait for the emmasworld:block_removed echo
+                    // rather than destroying immediately, same reasoning as
+                    // placement above. Every block visible while connected came
+                    // from a network event, so NetworkId is always valid here.
+                    multiplayerManager.RequestRemoveBlock(block.NetworkId);
+                    return;
                 }
+
+                Destroy(block.gameObject);
             }
         }
 

@@ -11,6 +11,7 @@ using Unity.Cinemachine;
 using Sandbox.Audio;
 using Sandbox.Player;
 using Sandbox.Building;
+using Sandbox.Multiplayer;
 using Sandbox.Save;
 using Sandbox.CameraControl;
 using Sandbox.UI;
@@ -64,7 +65,9 @@ namespace Sandbox.EditorTools
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial);
+            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial);
+
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, remoteAvatarPrefab);
             BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
 
@@ -480,7 +483,7 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, GameObject remoteAvatarPrefab)
         {
             // Root holds collision only (CharacterController); the visible blocky
             // humanoid lives under a child "Avatar" transform so the two can vary
@@ -501,6 +504,7 @@ namespace Sandbox.EditorTools
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
             player.AddComponent<AvatarAnimator>();
+            MultiplayerManager multiplayer = player.AddComponent<MultiplayerManager>();
             BuildPlacer placer = player.AddComponent<BuildPlacer>();
             WorldSaveSystem save = player.AddComponent<WorldSaveSystem>();
 
@@ -517,14 +521,23 @@ namespace Sandbox.EditorTools
             SetPrivateField(save, "blockPrefabs", blockPrefabs);
             SetPrivateField(save, "blockParent", blockParent);
 
+            SetPrivateField(multiplayer, "blockPrefabs", blockPrefabs);
+            SetPrivateField(multiplayer, "blockParent", blockParent);
+            SetPrivateField(multiplayer, "remoteAvatarPrefab", remoteAvatarPrefab);
+            SetPrivateField(multiplayer, "localPlayerTransform", player.transform);
+
             return player;
         }
 
-        private static void BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
+        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
         {
             // Positions/sizes are in the root's local space, which is centered on
             // the CharacterController (center=(0,0,0), height=2) -- so this spans
             // local y -1 (feet) to +1 (head top), matching the capsule it replaces.
+            // Zero local offset from parent, which is what lets CreateRemoteAvatarPrefab
+            // below reuse the exact same part layout for a standalone (no
+            // CharacterController) prefab positioned directly at a remote
+            // player's reported position.
             GameObject avatar = new GameObject("Avatar");
             avatar.transform.SetParent(parent, false);
 
@@ -538,6 +551,25 @@ namespace Sandbox.EditorTools
             CreateLimb(avatar.transform, "RightArm", new Vector3(0.6f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
             CreateLimb(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
             CreateLimb(avatar.transform, "RightLeg", new Vector3(0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
+
+            return avatar;
+        }
+
+        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial)
+        {
+            GameObject temp = new GameObject("RemoteAvatarRoot");
+            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial);
+            avatar.transform.SetParent(null, true);
+            Object.DestroyImmediate(temp);
+            avatar.name = "RemoteAvatar";
+
+            Directory.CreateDirectory(PrefabsFolder);
+            string path = $"{PrefabsFolder}/RemoteAvatar.prefab";
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(avatar, path, out bool success);
+            Object.DestroyImmediate(avatar);
+            if (!success)
+                Debug.LogError("SceneBootstrapper: failed to save RemoteAvatar prefab");
+            return prefab;
         }
 
         private static void CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
