@@ -54,7 +54,7 @@ namespace Sandbox.EditorTools
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
             ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
-            ApplyNoiseTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.45f, 0.18f), new Color(0.22f, 0.58f, 0.25f), 0.3f, 1.4f);
+            ApplyFoliageTexture(leafMaterial, "LeafNoise", new Color(0.14f, 0.48f, 0.19f), new Color(0.32f, 0.64f, 0.28f), new Color(0.05f, 0.2f, 0.08f));
 
             Terrain terrain = CreateTerrain(groundMaterial);
 
@@ -179,16 +179,66 @@ namespace Sandbox.EditorTools
                 filterMode = FilterMode.Bilinear,
             };
 
-            // Vertical bark-like streaks: primarily varies across x (wraps around
-            // the trunk's circumference), with a little Perlin jitter so the
-            // streaks aren't perfectly straight.
+            Color crackColor = baseColor * 0.45f;
+
             for (int y = 0; y < TextureSize; y++)
             {
                 for (int x = 0; x < TextureSize; x++)
                 {
+                    // Vertical bark-like streaks: primarily varies across x (wraps
+                    // around the trunk's circumference), with a little Perlin
+                    // jitter so the streaks aren't perfectly straight.
                     float jitter = Mathf.PerlinNoise(x * 0.05f, y * 0.2f) * 3f;
                     float stripe = Mathf.Sin((x + jitter) * 0.8f) * 0.5f + 0.5f;
-                    texture.SetPixel(x, y, Color.Lerp(baseColor, grainColor, stripe * 0.6f));
+                    Color pixel = Color.Lerp(baseColor, grainColor, stripe * 0.6f);
+
+                    // Fine roughness between streaks so bark doesn't read as
+                    // smooth stripes -- real bark is rough all over.
+                    float roughness = Mathf.PerlinNoise(x * 0.35f, y * 0.35f);
+                    pixel = Color.Lerp(pixel, grainColor, (roughness - 0.5f) * 0.25f);
+
+                    // Sparse thin dark cracks running with the grain.
+                    float crackNoise = Mathf.PerlinNoise(x * 0.06f + 50f, y * 0.9f);
+                    if (crackNoise > 0.82f)
+                        pixel = Color.Lerp(pixel, crackColor, Mathf.InverseLerp(0.82f, 0.95f, crackNoise));
+
+                    texture.SetPixel(x, y, pixel);
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
+        // Leaves need to read as a canopy of many small clumps rather than a
+        // flat tinted gradient: large-scale noise carves out clump/shadow-gap
+        // shapes, fine noise adds a dappled speckle on top of each clump.
+        private static void ApplyFoliageTexture(Material material, string name, Color baseColor, Color varyColor, Color shadowColor)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float clumps = Mathf.PerlinNoise(x * 0.08f, y * 0.08f);
+                    float speckle = Mathf.PerlinNoise(x * 0.6f + 100f, y * 0.6f + 100f);
+
+                    float n = Mathf.Clamp01(clumps * 0.7f + speckle * 0.3f);
+                    Color pixel = Color.Lerp(baseColor, varyColor, n);
+
+                    // Deep shadow gaps where clump density is lowest.
+                    if (clumps < 0.28f)
+                        pixel = Color.Lerp(pixel, shadowColor, Mathf.InverseLerp(0.28f, 0.05f, clumps));
+
+                    texture.SetPixel(x, y, pixel);
                 }
             }
             texture.Apply();
