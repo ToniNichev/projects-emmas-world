@@ -986,8 +986,11 @@ namespace Sandbox.EditorTools
             Sprite knobSprite = CreateCircleSprite("JoystickKnob", new Color(1f, 1f, 1f, 0.6f), ringOnly: false);
             Sprite buttonSprite = CreateCircleSprite("ActionButton", new Color(0f, 0f, 0f, 0.5f), ringOnly: false);
 
-            VirtualJoystick moveJoystick = CreateJoystick(canvasGo.transform, "MoveJoystick", new Vector2(0f, 0f), new Vector2(130f, 130f), ringSprite, knobSprite);
-            VirtualJoystick lookJoystick = CreateJoystick(canvasGo.transform, "LookJoystick", new Vector2(1f, 0f), new Vector2(-130f, 130f), ringSprite, knobSprite);
+            // anchoredPosition is now the circle's center (see CreateJoystick),
+            // so these are +90 further out on each axis than the old
+            // corner-pivot values, keeping the same on-screen layout.
+            VirtualJoystick moveJoystick = CreateJoystick(canvasGo.transform, "MoveJoystick", new Vector2(0f, 0f), new Vector2(220f, 220f), ringSprite, knobSprite);
+            VirtualJoystick lookJoystick = CreateJoystick(canvasGo.transform, "LookJoystick", new Vector2(1f, 0f), new Vector2(-220f, 220f), ringSprite, knobSprite);
 
             SetPrivateField(playerController, "moveJoystick", moveJoystick);
             SetPrivateField(cameraController, "lookJoystick", lookJoystick);
@@ -1034,7 +1037,14 @@ namespace Sandbox.EditorTools
             RectTransform bgRect = bgGo.AddComponent<RectTransform>();
             bgRect.anchorMin = cornerAnchor;
             bgRect.anchorMax = cornerAnchor;
-            bgRect.pivot = cornerAnchor;
+            // Always center-pivoted regardless of which screen corner this is
+            // anchored to -- VirtualJoystick's drag math treats the rect's
+            // local origin as the "centered, zero offset" reference point.
+            // Pivoting at the corner instead (matching cornerAnchor) put that
+            // origin at the edge of the circle, so any tap inside it computed
+            // a huge offset toward the far corner and immediately snapped the
+            // handle there instead of starting centered.
+            bgRect.pivot = new Vector2(0.5f, 0.5f);
             bgRect.sizeDelta = new Vector2(backgroundSize, backgroundSize);
             bgRect.anchoredPosition = anchoredPosition;
 
