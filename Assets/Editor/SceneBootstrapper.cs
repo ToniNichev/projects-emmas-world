@@ -54,7 +54,13 @@ namespace Sandbox.EditorTools
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
             ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
-            ApplyFoliageTexture(leafMaterial, "LeafNoise", new Color(0.14f, 0.48f, 0.19f), new Color(0.32f, 0.64f, 0.28f), new Color(0.05f, 0.2f, 0.08f));
+            // Default (1,1) tiling wraps the whole 64px texture around the
+            // trunk/canopy exactly once, so at normal camera distance the
+            // pattern reads as 2-3 soft blobs instead of visible detail --
+            // tile it several times like the ground texture does.
+            trunkMaterial.mainTextureScale = new Vector2(3f, 2f);
+            ApplyFoliageTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.46f, 0.17f), new Color(0.36f, 0.68f, 0.3f), new Color(0.03f, 0.16f, 0.06f));
+            leafMaterial.mainTextureScale = new Vector2(3f, 3f);
 
             Terrain terrain = CreateTerrain(groundMaterial);
 
@@ -199,8 +205,8 @@ namespace Sandbox.EditorTools
 
                     // Sparse thin dark cracks running with the grain.
                     float crackNoise = Mathf.PerlinNoise(x * 0.06f + 50f, y * 0.9f);
-                    if (crackNoise > 0.82f)
-                        pixel = Color.Lerp(pixel, crackColor, Mathf.InverseLerp(0.82f, 0.95f, crackNoise));
+                    if (crackNoise > 0.75f)
+                        pixel = Color.Lerp(pixel, crackColor, Mathf.InverseLerp(0.75f, 0.92f, crackNoise));
 
                     texture.SetPixel(x, y, pixel);
                 }
@@ -228,15 +234,15 @@ namespace Sandbox.EditorTools
             {
                 for (int x = 0; x < TextureSize; x++)
                 {
-                    float clumps = Mathf.PerlinNoise(x * 0.08f, y * 0.08f);
-                    float speckle = Mathf.PerlinNoise(x * 0.6f + 100f, y * 0.6f + 100f);
+                    float clumps = Mathf.PerlinNoise(x * 0.18f, y * 0.18f);
+                    float speckle = Mathf.PerlinNoise(x * 0.7f + 100f, y * 0.7f + 100f);
 
-                    float n = Mathf.Clamp01(clumps * 0.7f + speckle * 0.3f);
+                    float n = Mathf.Clamp01(0.5f + (clumps * 0.7f + speckle * 0.3f - 0.5f) * 1.6f);
                     Color pixel = Color.Lerp(baseColor, varyColor, n);
 
                     // Deep shadow gaps where clump density is lowest.
-                    if (clumps < 0.28f)
-                        pixel = Color.Lerp(pixel, shadowColor, Mathf.InverseLerp(0.28f, 0.05f, clumps));
+                    if (clumps < 0.35f)
+                        pixel = Color.Lerp(pixel, shadowColor, Mathf.InverseLerp(0.35f, 0.05f, clumps));
 
                     texture.SetPixel(x, y, pixel);
                 }
