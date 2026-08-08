@@ -995,10 +995,12 @@ namespace Sandbox.EditorTools
             SetPrivateField(playerController, "moveJoystick", moveJoystick);
             SetPrivateField(cameraController, "lookJoystick", lookJoystick);
 
-            // Small 2x2 action cluster above the look joystick.
-            const float buttonSize = 64f;
+            // Small 2x2 action cluster above the look joystick. gridBottom
+            // needs to clear the look joystick's top edge (center 220 +
+            // radius 110 = 330) plus a margin, not just the old smaller size.
+            const float buttonSize = 76f;
             const float gridRight = -30f;
-            const float gridBottom = 230f;
+            const float gridBottom = 350f;
             CreateActionButton(canvasGo.transform, "JumpButton", "Jump", new Vector2(gridRight - buttonSize - 10f, gridBottom + buttonSize + 10f), buttonSprite, font, playerController.TriggerJump);
             CreateActionButton(canvasGo.transform, "PlaceButton", "Place", new Vector2(gridRight, gridBottom + buttonSize + 10f), buttonSprite, font, placer.PerformPlace);
             CreateActionButton(canvasGo.transform, "UndoButton", "Undo", new Vector2(gridRight - buttonSize - 10f, gridBottom), buttonSprite, font, placer.PerformUndo);
@@ -1029,8 +1031,8 @@ namespace Sandbox.EditorTools
 
         private static VirtualJoystick CreateJoystick(Transform parent, string name, Vector2 cornerAnchor, Vector2 anchoredPosition, Sprite ringSprite, Sprite knobSprite)
         {
-            const float backgroundSize = 180f;
-            const float knobSize = 80f;
+            const float backgroundSize = 220f;
+            const float knobSize = 95f;
 
             GameObject bgGo = new GameObject(name);
             bgGo.transform.SetParent(parent, false);
@@ -1077,7 +1079,7 @@ namespace Sandbox.EditorTools
             rect.anchorMin = new Vector2(1f, 0f);
             rect.anchorMax = new Vector2(1f, 0f);
             rect.pivot = new Vector2(1f, 0f);
-            rect.sizeDelta = new Vector2(64f, 64f);
+            rect.sizeDelta = new Vector2(76f, 76f);
             rect.anchoredPosition = anchoredPosition;
 
             Image image = buttonGo.AddComponent<Image>();

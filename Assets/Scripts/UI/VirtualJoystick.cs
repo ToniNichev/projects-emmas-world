@@ -9,7 +9,10 @@ namespace Sandbox.UI
     public class VirtualJoystick : MonoBehaviour, IPointerDownHandler, IDragHandler, IPointerUpHandler
     {
         [SerializeField] private RectTransform handle;
-        [SerializeField] private float handleRange = 55f;
+        // A bigger drag radius means more physical finger travel is needed
+        // to reach full deflection (Value magnitude 1), which is what
+        // actually reduces sensitivity -- not just the visual size.
+        [SerializeField] private float handleRange = 68f;
 
         public Vector2 Value { get; private set; }
 

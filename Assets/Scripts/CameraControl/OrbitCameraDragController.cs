@@ -15,10 +15,11 @@ namespace Sandbox.CameraControl
         [SerializeField] private float maxRadius = 20f;
         [SerializeField] private float zoomSmoothSpeed = 10f;
         [SerializeField] private VirtualJoystick lookJoystick;
-        // Degrees/sec of camera rotation at full stick deflection -- an
-        // initial estimate like the original zoom multiplier was, likely
-        // needs a real-device tuning pass once it's actually tested.
-        [SerializeField] private float lookJoystickSpeed = 70f;
+        // Degrees/sec of camera rotation at full stick deflection. The
+        // original 70 felt too sensitive in real testing; lowered along with
+        // making the joystick itself bigger (more finger travel needed to
+        // reach full deflection in the first place).
+        [SerializeField] private float lookJoystickSpeed = 45f;
 
         // A single scroll-wheel notch can report a large raw delta in one
         // frame (especially discrete mouse wheels vs. trackpads), which used
