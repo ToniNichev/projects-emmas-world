@@ -970,8 +970,6 @@ namespace Sandbox.EditorTools
         // desktop input keeps working unchanged alongside these.
         private static void BuildMobileControls(ThirdPersonController playerController, OrbitCameraDragController cameraController, BuildPlacer placer)
         {
-            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-
             GameObject canvasGo = new GameObject("MobileControlsUI");
             Canvas canvas = canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -1005,12 +1003,21 @@ namespace Sandbox.EditorTools
             const float cornerExtent = 150f; // reaches well past the joystick's 110 radius
             const float cornerJoystickRadius = 110f; // matches the joystick ring exactly, so the cutout lines up
             const float cornerRound = 30f;
-            Sprite cornerSprite = CreateCornerWedgeSprite("ActionCorner", new Color(1f, 1f, 1f, 0.4f), cornerJoystickRadius, cornerRound);
+            const float cornerGap = 8f; // small gap from the joystick ring and between adjacent corner pieces
+            Sprite cornerSprite = CreateCornerWedgeSprite("ActionCorner", new Color(1f, 1f, 1f, 0.4f), cornerJoystickRadius, cornerRound, cornerGap);
 
-            CreateCornerButton(canvasGo.transform, "JumpButton", "Jump", lookJoystickPos, flipX: false, flipY: false, cornerExtent, cornerSprite, font, playerController.TriggerJump);
-            CreateCornerButton(canvasGo.transform, "PlaceButton", "Place", lookJoystickPos, flipX: true, flipY: false, cornerExtent, cornerSprite, font, placer.PerformPlace);
-            CreateCornerButton(canvasGo.transform, "UndoButton", "Undo", lookJoystickPos, flipX: false, flipY: true, cornerExtent, cornerSprite, font, placer.PerformUndo);
-            CreateCornerButton(canvasGo.transform, "RemoveButton", "Remove", lookJoystickPos, flipX: true, flipY: true, cornerExtent, cornerSprite, font, placer.PerformRemove);
+            // Small icons instead of text -- at this button size text was
+            // unreadable. Same procedural-generation approach as every other
+            // texture in this project, no external art.
+            Sprite iconJump = CreateIconSprite("IconJump", Color.white, IconShape.ArrowUp);
+            Sprite iconPlace = CreateIconSprite("IconPlace", Color.white, IconShape.Plus);
+            Sprite iconUndo = CreateIconSprite("IconUndo", Color.white, IconShape.ArrowLeft);
+            Sprite iconRemove = CreateIconSprite("IconRemove", Color.white, IconShape.Cross);
+
+            CreateCornerButton(canvasGo.transform, "JumpButton", iconJump, lookJoystickPos, flipX: false, flipY: false, cornerExtent, cornerSprite, playerController.TriggerJump);
+            CreateCornerButton(canvasGo.transform, "PlaceButton", iconPlace, lookJoystickPos, flipX: true, flipY: false, cornerExtent, cornerSprite, placer.PerformPlace);
+            CreateCornerButton(canvasGo.transform, "UndoButton", iconUndo, lookJoystickPos, flipX: false, flipY: true, cornerExtent, cornerSprite, placer.PerformUndo);
+            CreateCornerButton(canvasGo.transform, "RemoveButton", iconRemove, lookJoystickPos, flipX: true, flipY: true, cornerExtent, cornerSprite, placer.PerformRemove);
 
             // Fixed aim point for place/remove on touch (there's no cursor to
             // aim from -- BuildPlacer already falls back to screen-center
@@ -1089,7 +1096,7 @@ namespace Sandbox.EditorTools
         // quadrants this occupies and mirror the shared sprite to match --
         // the sprite is authored once, for the unflipped (extends up-right)
         // case.
-        private static void CreateCornerButton(Transform parent, string name, string label, Vector2 joystickCenter, bool flipX, bool flipY, float extent, Sprite cornerSprite, Font font, UnityEngine.Events.UnityAction onClick)
+        private static void CreateCornerButton(Transform parent, string name, Sprite icon, Vector2 joystickCenter, bool flipX, bool flipY, float extent, Sprite cornerSprite, UnityEngine.Events.UnityAction onClick)
         {
             GameObject buttonGo = new GameObject(name);
             buttonGo.transform.SetParent(parent, false);
@@ -1119,6 +1126,21 @@ namespace Sandbox.EditorTools
             Image image = shapeGo.AddComponent<Image>();
             image.sprite = cornerSprite;
             image.color = Color.white;
+            // An Image's clickable area is its full rectangle by default,
+            // regardless of the sprite's own transparency. This rect
+            // deliberately extends inward to the joystick's center (so the
+            // shape's concave cutout can sit flush against the ring), which
+            // put its transparent corner directly on top of the joystick's
+            // own drag area -- and since this button is later in the
+            // hierarchy (drawn/hit-tested on top), it was swallowing all of
+            // the joystick's touches. Restricting hit-testing to actually
+            // opaque pixels lets touches on the transparent part fall
+            // through to the joystick underneath. AlphaHitTestSetter (not a
+            // direct property set here) because
+            // Image.alphaHitTestMinimumThreshold isn't serialized by Unity
+            // -- setting it from this editor script would silently do
+            // nothing once the scene is saved and reloaded.
+            shapeGo.AddComponent<AlphaHitTestSetter>();
 
             Button button = buttonGo.AddComponent<Button>();
             button.targetGraphic = image;
@@ -1130,21 +1152,26 @@ namespace Sandbox.EditorTools
             // wiring an onClick entry in the Inspector, which does save.
             UnityEventTools.AddPersistentListener(button.onClick, onClick);
 
-            GameObject textGo = new GameObject("Label");
-            textGo.transform.SetParent(buttonGo.transform, false);
-            RectTransform textRect = textGo.AddComponent<RectTransform>();
-            textRect.anchorMin = Vector2.zero;
-            textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = Vector2.zero;
-            textRect.offsetMax = Vector2.zero;
+            // Icon stays unflipped/upright (unlike Shape) and is anchored to
+            // the outer corner -- away from the joystick -- then inset
+            // slightly, since that's where this wedge shape's visible area
+            // is actually concentrated (the joystick-side corner is cut
+            // away).
+            GameObject iconGo = new GameObject("Icon");
+            iconGo.transform.SetParent(buttonGo.transform, false);
+            RectTransform iconRect = iconGo.AddComponent<RectTransform>();
+            Vector2 outerCorner = new Vector2(flipX ? 0f : 1f, flipY ? 0f : 1f);
+            iconRect.anchorMin = outerCorner;
+            iconRect.anchorMax = outerCorner;
+            iconRect.pivot = outerCorner;
+            iconRect.sizeDelta = new Vector2(46f, 46f);
+            const float inset = 46f;
+            iconRect.anchoredPosition = new Vector2(flipX ? inset : -inset, flipY ? inset : -inset);
 
-            Text text = textGo.AddComponent<Text>();
-            text.text = label;
-            text.font = font;
-            text.fontSize = 13;
-            text.alignment = TextAnchor.MiddleCenter;
-            text.color = Color.white;
-            text.raycastTarget = false;
+            Image iconImage = iconGo.AddComponent<Image>();
+            iconImage.sprite = icon;
+            iconImage.color = Color.white;
+            iconImage.raycastTarget = false;
         }
 
         // Antialiased filled circle (knob/buttons) or ring (joystick
@@ -1196,7 +1223,7 @@ namespace Sandbox.EditorTools
         // Authored once for the "extends up-right" orientation; the other 3
         // corners reuse this same sprite mirrored via scale flips (see
         // CreateCornerButton).
-        private static Sprite CreateCornerWedgeSprite(string name, Color color, float circleRadius, float cornerRound)
+        private static Sprite CreateCornerWedgeSprite(string name, Color color, float circleRadius, float cornerRound, float gapMargin)
         {
             const int size = 150;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
@@ -1208,6 +1235,7 @@ namespace Sandbox.EditorTools
 
             Vector2 innerCorner = Vector2.zero;
             Vector2 outerCornerCenter = new Vector2(size - cornerRound, size - cornerRound);
+            float effectiveRadius = circleRadius + gapMargin;
 
             for (int y = 0; y < size; y++)
             {
@@ -1215,9 +1243,18 @@ namespace Sandbox.EditorTools
                 {
                     Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
 
-                    // Concave cutout following the joystick's circular edge.
+                    // Concave cutout following the joystick's circular edge,
+                    // pushed out by gapMargin so there's a visible gap
+                    // between the joystick ring and this piece.
                     float distFromInner = Vector2.Distance(p, innerCorner);
-                    float innerAlpha = Mathf.Clamp01(Mathf.InverseLerp(circleRadius - 1.5f, circleRadius + 1.5f, distFromInner));
+                    float innerAlpha = Mathf.Clamp01(Mathf.InverseLerp(effectiveRadius - 1.5f, effectiveRadius + 1.5f, distFromInner));
+
+                    // Straight-edge margin along the two sides that border
+                    // the neighboring (mirrored) corner pieces, so they
+                    // don't touch either -- the circular cutout above only
+                    // covers the area near the diagonal, not far along a
+                    // single axis.
+                    float edgeAlpha = Mathf.Clamp01(Mathf.InverseLerp(gapMargin - 1.5f, gapMargin + 1.5f, Mathf.Min(p.x, p.y)));
 
                     // Rounded outer corner -- only clips pixels in the
                     // corner-rounding box near the far corner; everywhere
@@ -1229,7 +1266,7 @@ namespace Sandbox.EditorTools
                         outerAlpha = 1f - Mathf.Clamp01(Mathf.InverseLerp(cornerRound - 1.5f, cornerRound + 1.5f, distFromOuterCenter));
                     }
 
-                    float alpha = innerAlpha * outerAlpha;
+                    float alpha = innerAlpha * edgeAlpha * outerAlpha;
                     texture.SetPixel(x, y, new Color(color.r, color.g, color.b, color.a * alpha));
                 }
             }
@@ -1239,6 +1276,99 @@ namespace Sandbox.EditorTools
             AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
 
             Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0f, 0f), 100f);
+            sprite.name = $"{name}_Sprite";
+            AssetDatabase.AddObjectToAsset(sprite, texture);
+            AssetDatabase.ImportAsset(AssetDatabase.GetAssetPath(texture));
+            return sprite;
+        }
+
+        private enum IconShape { Plus, Cross, ArrowUp, ArrowLeft }
+
+        // Small bold glyphs for the action buttons -- procedurally drawn
+        // like every other texture in this project, no external art/fonts.
+        // Text at this button size was unreadable; these read fine small.
+        private static Sprite CreateIconSprite(string name, Color color, IconShape shape)
+        {
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            float center = size / 2f;
+
+            float SoftEdge(float dist, float half) => 1f - Mathf.Clamp01(Mathf.InverseLerp(half - 1f, half + 1f, dist));
+            float SoftRange(float v, float lo, float hi) =>
+                Mathf.Clamp01(Mathf.InverseLerp(lo - 1f, lo + 1f, v)) * (1f - Mathf.Clamp01(Mathf.InverseLerp(hi - 1f, hi + 1f, v)));
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float px = x + 0.5f;
+                    float py = y + 0.5f;
+                    float alpha;
+
+                    switch (shape)
+                    {
+                        case IconShape.Plus:
+                        {
+                            const float half = 5f;
+                            const float margin = 8f;
+                            float hAlpha = SoftEdge(Mathf.Abs(py - center), half) * SoftRange(px, margin, size - margin);
+                            float vAlpha = SoftEdge(Mathf.Abs(px - center), half) * SoftRange(py, margin, size - margin);
+                            alpha = Mathf.Clamp01(hAlpha + vAlpha);
+                            break;
+                        }
+                        case IconShape.Cross:
+                        {
+                            const float half = 5f;
+                            float dx = px - center;
+                            float dy = py - center;
+                            float dist1 = Mathf.Abs(dx - dy) * 0.70710678f;
+                            float dist2 = Mathf.Abs(dx + dy) * 0.70710678f;
+                            float radius = size * 0.34f;
+                            float radial = 1f - Mathf.Clamp01(Mathf.InverseLerp(radius - 1f, radius + 1f, Mathf.Sqrt(dx * dx + dy * dy)));
+                            alpha = Mathf.Clamp01(SoftEdge(dist1, half) + SoftEdge(dist2, half)) * radial;
+                            break;
+                        }
+                        case IconShape.ArrowUp:
+                        {
+                            const float baseY = 14f, apexY = 50f, baseHalfWidth = 17f;
+                            float t = Mathf.Clamp01(Mathf.InverseLerp(baseY, apexY, py));
+                            float halfWidth = baseHalfWidth * (1f - t);
+                            alpha = SoftEdge(Mathf.Abs(px - center), halfWidth) * SoftRange(py, baseY, apexY);
+                            break;
+                        }
+                        case IconShape.ArrowLeft:
+                        {
+                            const float headTipX = 14f, headBaseX = 33f, headHalfHeight = 15f, stemHalf = 4.5f, stemEndX = 51f;
+                            float head = 0f;
+                            if (px >= headTipX && px <= headBaseX)
+                            {
+                                float t = Mathf.InverseLerp(headTipX, headBaseX, px);
+                                head = SoftEdge(Mathf.Abs(py - center), headHalfHeight * t);
+                            }
+                            float stem = SoftEdge(Mathf.Abs(py - center), stemHalf) * SoftRange(px, headBaseX - 4f, stemEndX);
+                            alpha = Mathf.Clamp01(head + stem);
+                            break;
+                        }
+                        default:
+                            alpha = 0f;
+                            break;
+                    }
+
+                    texture.SetPixel(x, y, new Color(color.r, color.g, color.b, color.a * alpha));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+
+            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
             sprite.name = $"{name}_Sprite";
             AssetDatabase.AddObjectToAsset(sprite, texture);
             AssetDatabase.ImportAsset(AssetDatabase.GetAssetPath(texture));
