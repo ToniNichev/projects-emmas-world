@@ -985,7 +985,6 @@ namespace Sandbox.EditorTools
 
             Sprite ringSprite = CreateCircleSprite("JoystickRing", new Color(1f, 1f, 1f, 0.35f), ringOnly: true);
             Sprite knobSprite = CreateCircleSprite("JoystickKnob", new Color(1f, 1f, 1f, 0.6f), ringOnly: false);
-            Sprite wedgeSprite = CreateWedgeSprite("ActionWedge", new Color(1f, 1f, 1f, 0.4f));
 
             // anchoredPosition is now the circle's center (see CreateJoystick),
             // so these are +90 further out on each axis than the old
@@ -997,20 +996,21 @@ namespace Sandbox.EditorTools
             SetPrivateField(playerController, "moveJoystick", moveJoystick);
             SetPrivateField(cameraController, "lookJoystick", lookJoystick);
 
-            // Action buttons as petal-shaped wedges fanned around the look
-            // joystick's upper-left arc instead of a separate row -- reads as
-            // part of the same radial control instead of bolted-on UI.
-            // Angles measured counter-clockwise from screen-right (90=up,
-            // 180=left); spans from just-left-of-up around through left to
-            // down-left, which stays clear of both screen edges and the
-            // joystick's own knob travel.
-            const float wedgeInnerRadius = 108f; // just outside the joystick ring's 110 radius
-            const float wedgeLength = 78f;
-            const float wedgeWidth = 92f;
-            CreateWedgeButton(canvasGo.transform, "JumpButton", "Jump", lookJoystickPos, 100f, wedgeInnerRadius, wedgeLength, wedgeWidth, wedgeSprite, font, playerController.TriggerJump);
-            CreateWedgeButton(canvasGo.transform, "PlaceButton", "Place", lookJoystickPos, 150f, wedgeInnerRadius, wedgeLength, wedgeWidth, wedgeSprite, font, placer.PerformPlace);
-            CreateWedgeButton(canvasGo.transform, "UndoButton", "Undo", lookJoystickPos, 200f, wedgeInnerRadius, wedgeLength, wedgeWidth, wedgeSprite, font, placer.PerformUndo);
-            CreateWedgeButton(canvasGo.transform, "RemoveButton", "Remove", lookJoystickPos, 250f, wedgeInnerRadius, wedgeLength, wedgeWidth, wedgeSprite, font, placer.PerformRemove);
+            // Action buttons as 4 rounded-triangle corner pieces that
+            // together with the joystick's own circle read as one enclosing
+            // rounded square -- each piece is a square quadrant with a
+            // concave bite taken out following the circle, and a rounded
+            // (not sharp) outer tip. One sprite, mirrored per corner via
+            // scale flips instead of 4 separate textures.
+            const float cornerExtent = 150f; // reaches well past the joystick's 110 radius
+            const float cornerJoystickRadius = 110f; // matches the joystick ring exactly, so the cutout lines up
+            const float cornerRound = 30f;
+            Sprite cornerSprite = CreateCornerWedgeSprite("ActionCorner", new Color(1f, 1f, 1f, 0.4f), cornerJoystickRadius, cornerRound);
+
+            CreateCornerButton(canvasGo.transform, "JumpButton", "Jump", lookJoystickPos, flipX: false, flipY: false, cornerExtent, cornerSprite, font, playerController.TriggerJump);
+            CreateCornerButton(canvasGo.transform, "PlaceButton", "Place", lookJoystickPos, flipX: true, flipY: false, cornerExtent, cornerSprite, font, placer.PerformPlace);
+            CreateCornerButton(canvasGo.transform, "UndoButton", "Undo", lookJoystickPos, flipX: false, flipY: true, cornerExtent, cornerSprite, font, placer.PerformUndo);
+            CreateCornerButton(canvasGo.transform, "RemoveButton", "Remove", lookJoystickPos, flipX: true, flipY: true, cornerExtent, cornerSprite, font, placer.PerformRemove);
 
             // Fixed aim point for place/remove on touch (there's no cursor to
             // aim from -- BuildPlacer already falls back to screen-center
@@ -1081,29 +1081,43 @@ namespace Sandbox.EditorTools
         // against the joystick's ring at the given angle, tip pointing
         // outward. angleDegrees is measured counter-clockwise from
         // screen-right (90=up, 180=left), matching standard math convention.
-        private static void CreateWedgeButton(Transform parent, string name, string label, Vector2 joystickCenter, float angleDegrees, float innerRadius, float wedgeLength, float wedgeWidth, Sprite wedgeSprite, Font font, UnityEngine.Events.UnityAction onClick)
+        // Places a rounded-triangle corner piece with its "inner" corner
+        // (nearest the joystick, where CreateCornerWedgeSprite puts the
+        // concave circular cutout) pinned exactly at joystickCenter, so all
+        // 4 corners share one pivot point and only differ by which way they
+        // extend outward. flipX/flipY pick which of the 4 diagonal
+        // quadrants this occupies and mirror the shared sprite to match --
+        // the sprite is authored once, for the unflipped (extends up-right)
+        // case.
+        private static void CreateCornerButton(Transform parent, string name, string label, Vector2 joystickCenter, bool flipX, bool flipY, float extent, Sprite cornerSprite, Font font, UnityEngine.Events.UnityAction onClick)
         {
-            float angleRad = angleDegrees * Mathf.Deg2Rad;
-            Vector2 direction = new Vector2(Mathf.Cos(angleRad), Mathf.Sin(angleRad));
-            Vector2 basePosition = joystickCenter + direction * innerRadius;
-
             GameObject buttonGo = new GameObject(name);
             buttonGo.transform.SetParent(parent, false);
             RectTransform rect = buttonGo.AddComponent<RectTransform>();
-            // Same corner anchor as the joystick itself, so joystickCenter
-            // (already relative to that corner) places this correctly
-            // without another coordinate-space conversion.
             rect.anchorMin = new Vector2(1f, 0f);
             rect.anchorMax = new Vector2(1f, 0f);
-            rect.pivot = new Vector2(0.5f, 0f);
-            rect.sizeDelta = new Vector2(wedgeWidth, wedgeLength);
-            rect.anchoredPosition = basePosition;
-            // CreateWedgeSprite draws the wedge pointing up (+Y) by default;
-            // rotate so it points in `direction` instead.
-            rect.localRotation = Quaternion.Euler(0f, 0f, 90f - angleDegrees);
+            // The pivot corner is whichever corner of this rect ends up
+            // nearest the joystick once flipped -- e.g. flipX pushes the
+            // piece leftward, so its "inner" edge is now on the right.
+            rect.pivot = new Vector2(flipX ? 1f : 0f, flipY ? 1f : 0f);
+            rect.sizeDelta = new Vector2(extent, extent);
+            rect.anchoredPosition = joystickCenter;
 
-            Image image = buttonGo.AddComponent<Image>();
-            image.sprite = wedgeSprite;
+            GameObject shapeGo = new GameObject("Shape");
+            shapeGo.transform.SetParent(buttonGo.transform, false);
+            RectTransform shapeRect = shapeGo.AddComponent<RectTransform>();
+            shapeRect.anchorMin = Vector2.zero;
+            shapeRect.anchorMax = Vector2.one;
+            shapeRect.offsetMin = Vector2.zero;
+            shapeRect.offsetMax = Vector2.zero;
+            // Mirroring around the shape's own center (which spans the same
+            // bounds as the button rect) keeps the sprite's inner corner
+            // pinned at joystickCenter after flipping, matching the pivot
+            // chosen above.
+            shapeRect.localScale = new Vector3(flipX ? -1f : 1f, flipY ? -1f : 1f, 1f);
+
+            Image image = shapeGo.AddComponent<Image>();
+            image.sprite = cornerSprite;
             image.color = Color.white;
 
             Button button = buttonGo.AddComponent<Button>();
@@ -1119,14 +1133,10 @@ namespace Sandbox.EditorTools
             GameObject textGo = new GameObject("Label");
             textGo.transform.SetParent(buttonGo.transform, false);
             RectTransform textRect = textGo.AddComponent<RectTransform>();
-            textRect.anchorMin = new Vector2(0.5f, 0f);
-            textRect.anchorMax = new Vector2(0.5f, 0f);
-            textRect.pivot = new Vector2(0.5f, 0.5f);
-            textRect.sizeDelta = new Vector2(wedgeWidth, wedgeLength * 0.55f);
-            textRect.anchoredPosition = new Vector2(0f, wedgeLength * 0.32f);
-            // Counter-rotate so the label reads upright on screen regardless
-            // of which way the wedge itself is rotated around the joystick.
-            textRect.localRotation = Quaternion.Euler(0f, 0f, angleDegrees - 90f);
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
 
             Text text = textGo.AddComponent<Text>();
             text.text = label;
@@ -1177,37 +1187,49 @@ namespace Sandbox.EditorTools
             return sprite;
         }
 
-        // Petal/wedge shape: full width at the base (bottom), tapering
-        // linearly to a small rounded point at the tip (top). Pivot is
-        // bottom-center, so placing this button's RectTransform pivot at a
-        // point on the joystick ring and rotating it "just works" -- the
-        // rounded base reads as following the ring's curve since it sits
-        // flush against it, and the point reads as a triangle-ish tip
-        // pointing outward.
-        private static Sprite CreateWedgeSprite(string name, Color color)
+        // Square quadrant piece with a concave circular bite taken out of
+        // its "inner" corner (local origin, bottom-left) -- following a
+        // circle of `circleRadius` centered there -- and a rounded (not
+        // sharp) outer corner at the far end. Reads as a rounded triangle:
+        // two roughly-straight edges along the square's sides, curving
+        // concave near the joystick and convex-rounded at the outward tip.
+        // Authored once for the "extends up-right" orientation; the other 3
+        // corners reuse this same sprite mirrored via scale flips (see
+        // CreateCornerButton).
+        private static Sprite CreateCornerWedgeSprite(string name, Color color, float circleRadius, float cornerRound)
         {
-            const int width = 112;
-            const int height = 176;
-            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            const int size = 150;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
             {
                 name = name,
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,
             };
 
-            const float baseHalfWidth = width * 0.42f;
-            const float tipRound = 6f;
-            float centerX = width / 2f;
+            Vector2 innerCorner = Vector2.zero;
+            Vector2 outerCornerCenter = new Vector2(size - cornerRound, size - cornerRound);
 
-            for (int y = 0; y < height; y++)
+            for (int y = 0; y < size; y++)
             {
-                float t = y / (float)(height - 1);
-                float halfWidth = Mathf.Max(0f, baseHalfWidth * (1f - t) - tipRound * t);
-
-                for (int x = 0; x < width; x++)
+                for (int x = 0; x < size; x++)
                 {
-                    float distFromCenterX = Mathf.Abs(x + 0.5f - centerX);
-                    float alpha = 1f - Mathf.Clamp01(Mathf.InverseLerp(halfWidth - 1.5f, halfWidth + 1.5f, distFromCenterX));
+                    Vector2 p = new Vector2(x + 0.5f, y + 0.5f);
+
+                    // Concave cutout following the joystick's circular edge.
+                    float distFromInner = Vector2.Distance(p, innerCorner);
+                    float innerAlpha = Mathf.Clamp01(Mathf.InverseLerp(circleRadius - 1.5f, circleRadius + 1.5f, distFromInner));
+
+                    // Rounded outer corner -- only clips pixels in the
+                    // corner-rounding box near the far corner; everywhere
+                    // else the square's straight edges are left alone.
+                    float outerAlpha = 1f;
+                    if (p.x > outerCornerCenter.x && p.y > outerCornerCenter.y)
+                    {
+                        float distFromOuterCenter = Vector2.Distance(p, outerCornerCenter);
+                        outerAlpha = 1f - Mathf.Clamp01(Mathf.InverseLerp(cornerRound - 1.5f, cornerRound + 1.5f, distFromOuterCenter));
+                    }
+
+                    float alpha = innerAlpha * outerAlpha;
                     texture.SetPixel(x, y, new Color(color.r, color.g, color.b, color.a * alpha));
                 }
             }
@@ -1216,7 +1238,7 @@ namespace Sandbox.EditorTools
             Directory.CreateDirectory(TexturesFolder);
             AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
 
-            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0f), 100f);
+            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0f, 0f), 100f);
             sprite.name = $"{name}_Sprite";
             AssetDatabase.AddObjectToAsset(sprite, texture);
             AssetDatabase.ImportAsset(AssetDatabase.GetAssetPath(texture));
