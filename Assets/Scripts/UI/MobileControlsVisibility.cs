@@ -1,5 +1,8 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+#if UNITY_WEBGL && !UNITY_EDITOR
+using System.Runtime.InteropServices;
+#endif
 
 namespace Sandbox.UI
 {
@@ -10,17 +13,35 @@ namespace Sandbox.UI
     // fires Awake until something else re-enables it).
     public class MobileControlsVisibility : MonoBehaviour
     {
+        // Single source of truth for "treat this session as touch" --
+        // BuildPlacer's aim-point logic reads this too, so the on-screen
+        // crosshair/joysticks and the actual aiming behavior can never
+        // disagree with each other.
+        public static bool IsTouchDevice { get; private set; }
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+        [DllImport("__Internal")]
+        private static extern int EmmasWorld_IsTouchDevice();
+#endif
+
         private void Awake()
         {
-            // Touchscreen.current is only populated once the New Input
-            // System has actually seen a touch event -- on a fresh page load
-            // (e.g. iPad Safari before the player has touched anything) it's
-            // still null even though the device is touch-capable, which was
-            // hiding the controls permanently before they could ever be
-            // used. Input.touchSupported is the legacy Input Manager's
-            // static browser/OS feature-detection query, available
-            // immediately at startup with no prior touch required.
-            gameObject.SetActive(Input.touchSupported || Touchscreen.current != null);
+            IsTouchDevice = DetectTouchDevice();
+            gameObject.SetActive(IsTouchDevice);
+        }
+
+        private static bool DetectTouchDevice()
+        {
+#if UNITY_WEBGL && !UNITY_EDITOR
+            // Touchscreen.current (New Input System) is only populated once a
+            // touch event has actually fired, and Input.touchSupported
+            // (legacy Input Manager) is unreliable in WebGL -- both gave
+            // false positives/negatives in real testing. navigator.maxTouchPoints
+            // via a small JS bridge reflects real hardware immediately.
+            return EmmasWorld_IsTouchDevice() != 0;
+#else
+            return Touchscreen.current != null;
+#endif
         }
     }
 }

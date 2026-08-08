@@ -4,6 +4,7 @@ using UnityEngine.InputSystem;
 using Sandbox.Audio;
 using Sandbox.Multiplayer;
 using Sandbox.Save;
+using Sandbox.UI;
 
 namespace Sandbox.Building
 {
@@ -277,7 +278,12 @@ namespace Sandbox.Building
             // On touch devices there's no meaningful cursor position to aim
             // from -- place/remove aim from a fixed screen-center crosshair
             // instead, driven by the look joystick rotating the camera.
-            if (Touchscreen.current != null)
+            // Shares MobileControlsVisibility's device check rather than
+            // querying Touchscreen.current independently -- that flagged
+            // some non-touch desktop browsers as touch-capable too, which
+            // broke mouse aiming there (blocks placed at screen center /
+            // the avatar instead of under the cursor).
+            if (MobileControlsVisibility.IsTouchDevice)
                 return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
 
             return Mouse.current != null ? Mouse.current.position.ReadValue() : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
