@@ -8,6 +8,10 @@ namespace Sandbox.CameraControl
     {
         [SerializeField] private CinemachineOrbitalFollow orbitalFollow;
         [SerializeField] private float sensitivity = 0.2f;
+        [SerializeField] private float scrollZoomSpeed = 1.5f;
+        [SerializeField] private float keyZoomSpeed = 8f;
+        [SerializeField] private float minRadius = 2f;
+        [SerializeField] private float maxRadius = 20f;
 
         private void Awake()
         {
@@ -17,7 +21,16 @@ namespace Sandbox.CameraControl
 
         private void Update()
         {
-            if (orbitalFollow == null || Mouse.current == null || !Mouse.current.rightButton.isPressed)
+            if (orbitalFollow == null)
+                return;
+
+            UpdateOrbit();
+            UpdateZoom();
+        }
+
+        private void UpdateOrbit()
+        {
+            if (Mouse.current == null || !Mouse.current.rightButton.isPressed)
                 return;
 
             Vector2 delta = Mouse.current.delta.ReadValue();
@@ -29,6 +42,28 @@ namespace Sandbox.CameraControl
             InputAxis vertical = orbitalFollow.VerticalAxis;
             vertical.Value = ApplyRange(vertical.Value - delta.y * sensitivity, vertical.Range, vertical.Wrap);
             orbitalFollow.VerticalAxis = vertical;
+        }
+
+        private void UpdateZoom()
+        {
+            float zoomDelta = 0f;
+
+            // Scroll up (positive y) zooms in, matching Roblox's convention.
+            if (Mouse.current != null)
+                zoomDelta -= Mouse.current.scroll.ReadValue().y * scrollZoomSpeed * 0.01f;
+
+            if (Keyboard.current != null)
+            {
+                if (Keyboard.current.equalsKey.isPressed || Keyboard.current.numpadPlusKey.isPressed)
+                    zoomDelta -= keyZoomSpeed * Time.deltaTime;
+                if (Keyboard.current.minusKey.isPressed || Keyboard.current.numpadMinusKey.isPressed)
+                    zoomDelta += keyZoomSpeed * Time.deltaTime;
+            }
+
+            if (Mathf.Approximately(zoomDelta, 0f))
+                return;
+
+            orbitalFollow.Radius = Mathf.Clamp(orbitalFollow.Radius + zoomDelta, minRadius, maxRadius);
         }
 
         private static float ApplyRange(float value, Vector2 range, bool wrap)
