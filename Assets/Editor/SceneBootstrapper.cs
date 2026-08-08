@@ -1168,7 +1168,10 @@ namespace Sandbox.EditorTools
             iconRect.anchorMax = outerCorner;
             iconRect.pivot = new Vector2(0.5f, 0.5f);
             iconRect.sizeDelta = new Vector2(46f, 46f);
-            const float inset = 54f;
+            // A smaller inset pulls back less from the outer corner, i.e.
+            // sits the icon further from the joystick/cutout edge -- 54 put
+            // icons too close to the concave inner border in real testing.
+            const float inset = 38f;
             iconRect.anchoredPosition = new Vector2(flipX ? inset : -inset, flipY ? inset : -inset);
 
             Image iconImage = iconGo.AddComponent<Image>();
