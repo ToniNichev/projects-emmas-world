@@ -50,7 +50,7 @@ namespace Sandbox.EditorTools
             // Solid white base color so the stripe colors show through unmodified
             // (albedo = mainTex * color); the texture itself carries the actual hues.
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
-            ApplyNoiseTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.5f, 0.4f);
+            ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
             ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
             ApplyNoiseTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.45f, 0.18f), new Color(0.22f, 0.58f, 0.25f), 0.3f, 1.4f);
@@ -206,6 +206,47 @@ namespace Sandbox.EditorTools
                 Color rowColor = band % 2 == 0 ? colorA : colorB;
                 for (int x = 0; x < TextureSize; x++)
                     texture.SetPixel(x, y, rowColor);
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
+        // Noise speckle plus a darkened border near each UV edge, so every block
+        // face reads as a distinct bevelled unit (a "toy block" look) instead of
+        // just a flat tinted surface -- more pronounced than ApplyNoiseTexture's
+        // subtle grain. Multiplies with whatever per-instance tint BuildPlacer
+        // assigns at placement time, same as the texture it replaces.
+        private static void ApplyBlockTexture(Material material, string name, Color baseColor, Color varyColor, float noiseScale, float contrast, float borderWidth, float borderDarken)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float n = Mathf.PerlinNoise(x * noiseScale, y * noiseScale);
+                    n = Mathf.Clamp01(0.5f + (n - 0.5f) * contrast);
+                    Color pixel = Color.Lerp(baseColor, varyColor, n);
+
+                    float u = x / (float)(TextureSize - 1);
+                    float v = y / (float)(TextureSize - 1);
+                    float edgeDist = Mathf.Min(Mathf.Min(u, 1f - u), Mathf.Min(v, 1f - v));
+                    if (edgeDist < borderWidth)
+                    {
+                        float darken = Mathf.Lerp(borderDarken, 1f, edgeDist / borderWidth);
+                        pixel = new Color(pixel.r * darken, pixel.g * darken, pixel.b * darken, 1f);
+                    }
+
+                    texture.SetPixel(x, y, pixel);
+                }
             }
             texture.Apply();
 
