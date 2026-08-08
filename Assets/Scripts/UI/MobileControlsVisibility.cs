@@ -12,7 +12,15 @@ namespace Sandbox.UI
     {
         private void Awake()
         {
-            gameObject.SetActive(Touchscreen.current != null);
+            // Touchscreen.current is only populated once the New Input
+            // System has actually seen a touch event -- on a fresh page load
+            // (e.g. iPad Safari before the player has touched anything) it's
+            // still null even though the device is touch-capable, which was
+            // hiding the controls permanently before they could ever be
+            // used. Input.touchSupported is the legacy Input Manager's
+            // static browser/OS feature-detection query, available
+            // immediately at startup with no prior touch required.
+            gameObject.SetActive(Input.touchSupported || Touchscreen.current != null);
         }
     }
 }
