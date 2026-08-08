@@ -52,7 +52,8 @@ namespace Sandbox.EditorTools
             // (albedo = mainTex * color); the texture itself carries the actual hues.
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
-            ApplyNoiseTexture(rockMaterial, "RockNoise", new Color(0.42f, 0.42f, 0.44f), new Color(0.58f, 0.58f, 0.6f), 0.25f, 1.2f);
+            ApplyRockTexture(rockMaterial, "RockNoise", new Color(0.4f, 0.4f, 0.42f), new Color(0.62f, 0.62f, 0.65f), new Color(0.2f, 0.2f, 0.22f));
+            rockMaterial.mainTextureScale = new Vector2(2f, 2f);
             ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
             // Default (1,1) tiling wraps the whole 64px texture around the
             // trunk/canopy exactly once, so at normal camera distance the
@@ -236,6 +237,43 @@ namespace Sandbox.EditorTools
             material.mainTexture = texture;
         }
 
+        // Mottled stone surface via fbm, plus a few thin angled mineral-vein
+        // cracks -- reads as weathered rock rather than a flat grey blob.
+        private static void ApplyRockTexture(Material material, string name, Color baseColor, Color varyColor, Color veinColor)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float n = Fbm(x * 0.12f, y * 0.12f, 4);
+                    n = Mathf.Clamp01(0.5f + (n - 0.5f) * 1.5f);
+                    Color pixel = Color.Lerp(baseColor, varyColor, n);
+
+                    // Thin diagonal mineral veins: low-frequency noise near
+                    // its midpoint traces a wandering thin line instead of a
+                    // wide band.
+                    float veinNoise = Fbm(x * 0.05f + 30f, y * 0.05f - 40f, 2);
+                    float veinDist = Mathf.Abs(veinNoise - 0.5f);
+                    if (veinDist < 0.02f)
+                        pixel = Color.Lerp(pixel, veinColor, 1f - veinDist / 0.02f);
+
+                    texture.SetPixel(x, y, pixel);
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
         // Leaves need to read as a canopy of many small clumps rather than a
         // flat tinted gradient: large-scale noise carves out clump/shadow-gap
         // shapes, fine noise adds a dappled speckle on top of each clump.
@@ -385,20 +423,33 @@ namespace Sandbox.EditorTools
 
         private static GameObject CreateRockPrefab(Material material)
         {
-            GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            rock.name = "Rock";
-            rock.GetComponent<Renderer>().sharedMaterial = material;
-            // Irregular base scale for a boulder-ish look; ScatterEnvironmentProps
-            // layers a further random uniform scale on top per instance.
-            rock.transform.localScale = new Vector3(1f, 0.75f, 0.9f);
+            GameObject root = new GameObject("Rock");
+
+            // A smooth sphere reads as a ball, not a rock. Cluster a few
+            // angular, differently-rotated cube chunks instead -- also fits
+            // the game's blocky aesthetic better than a rounded boulder would.
+            CreateRockChunk(root.transform, material, "ChunkMain", Vector3.zero, new Vector3(1f, 0.7f, 0.85f), Quaternion.Euler(8f, 20f, -5f));
+            CreateRockChunk(root.transform, material, "ChunkA", new Vector3(0.35f, -0.08f, 0.3f), new Vector3(0.55f, 0.45f, 0.5f), Quaternion.Euler(-12f, 55f, 10f));
+            CreateRockChunk(root.transform, material, "ChunkB", new Vector3(-0.4f, -0.12f, -0.25f), new Vector3(0.5f, 0.4f, 0.45f), Quaternion.Euler(15f, -35f, -8f));
 
             Directory.CreateDirectory(PrefabsFolder);
             string path = $"{PrefabsFolder}/Rock.prefab";
-            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(rock, path, out bool success);
-            Object.DestroyImmediate(rock);
+            GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, path, out bool success);
+            Object.DestroyImmediate(root);
             if (!success)
                 Debug.LogError("SceneBootstrapper: failed to save Rock prefab");
             return prefab;
+        }
+
+        private static void CreateRockChunk(Transform parent, Material material, string name, Vector3 localPosition, Vector3 scale, Quaternion rotation)
+        {
+            GameObject chunk = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            chunk.name = name;
+            chunk.transform.SetParent(parent, false);
+            chunk.transform.localPosition = localPosition;
+            chunk.transform.localScale = scale;
+            chunk.transform.localRotation = rotation;
+            chunk.GetComponent<Renderer>().sharedMaterial = material;
         }
 
         private static GameObject CreateTreePrefab(Material trunkMaterial, Material leafMaterial)
