@@ -147,6 +147,22 @@ namespace Sandbox.EditorTools
 
         private const int TextureSize = 64;
 
+        // Layered Perlin octaves ("fractional Brownian motion") instead of a
+        // single frequency -- reads as organic cloudy/mottled detail rather
+        // than the smooth single-blob-size look one octave produces.
+        private static float Fbm(float x, float y, int octaves)
+        {
+            float sum = 0f, amplitude = 0.5f, frequency = 1f, maxSum = 0f;
+            for (int i = 0; i < octaves; i++)
+            {
+                sum += amplitude * Mathf.PerlinNoise(x * frequency, y * frequency);
+                maxSum += amplitude;
+                amplitude *= 0.5f;
+                frequency *= 2f;
+            }
+            return sum / maxSum;
+        }
+
         // Multiplies into whatever tint the material/instance already has
         // (Standard shader albedo = mainTex * color), so this works both for
         // static materials (Ground, Rock, ...) and Block, whose per-instance
@@ -199,9 +215,11 @@ namespace Sandbox.EditorTools
                     Color pixel = Color.Lerp(baseColor, grainColor, stripe * 0.6f);
 
                     // Fine roughness between streaks so bark doesn't read as
-                    // smooth stripes -- real bark is rough all over.
-                    float roughness = Mathf.PerlinNoise(x * 0.35f, y * 0.35f);
-                    pixel = Color.Lerp(pixel, grainColor, (roughness - 0.5f) * 0.25f);
+                    // smooth stripes -- real bark is rough all over. Fbm gives
+                    // it an organic, uneven texture instead of a uniform grid
+                    // of bumps a single Perlin octave would produce.
+                    float roughness = Fbm(x * 0.3f, y * 0.3f, 3);
+                    pixel = Color.Lerp(pixel, grainColor, (roughness - 0.5f) * 0.35f);
 
                     // Sparse thin dark cracks running with the grain.
                     float crackNoise = Mathf.PerlinNoise(x * 0.06f + 50f, y * 0.9f);
@@ -234,7 +252,7 @@ namespace Sandbox.EditorTools
             {
                 for (int x = 0; x < TextureSize; x++)
                 {
-                    float clumps = Mathf.PerlinNoise(x * 0.18f, y * 0.18f);
+                    float clumps = Fbm(x * 0.16f, y * 0.16f, 3);
                     float speckle = Mathf.PerlinNoise(x * 0.7f + 100f, y * 0.7f + 100f);
 
                     float n = Mathf.Clamp01(0.5f + (clumps * 0.7f + speckle * 0.3f - 0.5f) * 1.6f);
@@ -387,19 +405,19 @@ namespace Sandbox.EditorTools
         {
             GameObject root = new GameObject("Tree");
 
-            GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            trunk.name = "Trunk";
-            trunk.transform.SetParent(root.transform, false);
-            trunk.transform.localPosition = new Vector3(0f, 1f, 0f);
-            trunk.transform.localScale = new Vector3(0.3f, 1f, 0.3f);
-            trunk.GetComponent<Renderer>().sharedMaterial = trunkMaterial;
+            // Two tapered segments instead of one uniform cylinder -- a trunk
+            // that's the same width top to bottom is a big part of what made
+            // this read as a toy rather than a tree.
+            CreateTrunkSegment(root.transform, trunkMaterial, "TrunkLower", localY: 0.55f, height: 0.55f, diameter: 0.34f);
+            CreateTrunkSegment(root.transform, trunkMaterial, "TrunkUpper", localY: 1.6f, height: 0.5f, diameter: 0.22f);
 
-            GameObject leaves = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            leaves.name = "Leaves";
-            leaves.transform.SetParent(root.transform, false);
-            leaves.transform.localPosition = new Vector3(0f, 2.6f, 0f);
-            leaves.transform.localScale = new Vector3(1.6f, 1.6f, 1.6f);
-            leaves.GetComponent<Renderer>().sharedMaterial = leafMaterial;
+            // A single sphere reads as a lollipop; clustering a few
+            // differently-sized, off-center spheres breaks up the silhouette
+            // into something closer to an actual leaf canopy.
+            CreateCanopyBlob(root.transform, leafMaterial, "LeavesCenter", new Vector3(0f, 2.7f, 0f), 1.3f);
+            CreateCanopyBlob(root.transform, leafMaterial, "LeavesLeft", new Vector3(-0.5f, 2.35f, 0.35f), 0.95f);
+            CreateCanopyBlob(root.transform, leafMaterial, "LeavesRight", new Vector3(0.45f, 2.4f, -0.4f), 0.9f);
+            CreateCanopyBlob(root.transform, leafMaterial, "LeavesTop", new Vector3(0.1f, 3.05f, -0.15f), 0.75f);
 
             Directory.CreateDirectory(PrefabsFolder);
             string path = $"{PrefabsFolder}/Tree.prefab";
@@ -408,6 +426,26 @@ namespace Sandbox.EditorTools
             if (!success)
                 Debug.LogError("SceneBootstrapper: failed to save Tree prefab");
             return prefab;
+        }
+
+        private static void CreateTrunkSegment(Transform parent, Material material, string name, float localY, float height, float diameter)
+        {
+            GameObject segment = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            segment.name = name;
+            segment.transform.SetParent(parent, false);
+            segment.transform.localPosition = new Vector3(0f, localY, 0f);
+            segment.transform.localScale = new Vector3(diameter, height, diameter);
+            segment.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
+        private static void CreateCanopyBlob(Transform parent, Material material, string name, Vector3 localPosition, float scale)
+        {
+            GameObject blob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            blob.name = name;
+            blob.transform.SetParent(parent, false);
+            blob.transform.localPosition = localPosition;
+            blob.transform.localScale = new Vector3(scale, scale, scale);
+            blob.GetComponent<Renderer>().sharedMaterial = material;
         }
 
         private static void ScatterEnvironmentProps(Terrain terrain, GameObject treePrefab, GameObject rockPrefab)
