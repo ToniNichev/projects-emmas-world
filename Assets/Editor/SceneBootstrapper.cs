@@ -95,6 +95,11 @@ namespace Sandbox.EditorTools
                 .With("Down", "<Keyboard>/s")
                 .With("Left", "<Keyboard>/a")
                 .With("Right", "<Keyboard>/d");
+            move.AddCompositeBinding("2DVector")
+                .With("Up", "<Keyboard>/upArrow")
+                .With("Down", "<Keyboard>/downArrow")
+                .With("Left", "<Keyboard>/leftArrow")
+                .With("Right", "<Keyboard>/rightArrow");
 
             map.AddAction("Sprint", InputActionType.Button, binding: "<Keyboard>/leftShift");
             map.AddAction("Jump", InputActionType.Button, binding: "<Keyboard>/space");
