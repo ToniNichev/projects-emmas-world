@@ -14,6 +14,7 @@ using Sandbox.Building;
 using Sandbox.Multiplayer;
 using Sandbox.Save;
 using Sandbox.CameraControl;
+using Sandbox.Environment;
 using Sandbox.UI;
 
 namespace Sandbox.EditorTools
@@ -27,6 +28,15 @@ namespace Sandbox.EditorTools
         private const string PlayerLayerName = "Player";
         private const string MaterialsFolder = "Assets/Materials";
         private const string TexturesFolder = "Assets/Textures";
+
+        // Lake placement -- off to one side, away from the flat spawn/build
+        // area, with a shore band that blends smoothly into the surrounding
+        // terrain rather than a hard-edged pit.
+        private const float LakeCenterX = 32f;
+        private const float LakeCenterZ = -28f;
+        private const float LakeRadius = 14f;
+        private const float LakeShoreBlend = 6f;
+        private const float LakeSurfaceY = 0.45f;
 
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
@@ -63,7 +73,14 @@ namespace Sandbox.EditorTools
             ApplyFoliageTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.46f, 0.17f), new Color(0.36f, 0.68f, 0.3f), new Color(0.03f, 0.16f, 0.06f));
             leafMaterial.mainTextureScale = new Vector2(3f, 3f);
 
+            Material waterMaterial = CreateMaterial("Water", new Color(0.15f, 0.45f, 0.7f, 0.75f));
+            ApplyWaterTexture(waterMaterial, "WaterRipple", new Color(0.1f, 0.35f, 0.6f, 0.75f), new Color(0.32f, 0.65f, 0.85f, 0.75f));
+            waterMaterial.mainTextureScale = new Vector2(6f, 6f);
+            waterMaterial.SetFloat("_Glossiness", 0.85f);
+            SetMaterialTransparent(waterMaterial);
+
             Terrain terrain = CreateTerrain(groundMaterial);
+            CreateLake(waterMaterial);
 
             GameObject rockPrefab = CreateRockPrefab(rockMaterial);
             GameObject treePrefab = CreateTreePrefab(trunkMaterial, leafMaterial);
@@ -144,6 +161,20 @@ namespace Sandbox.EditorTools
             var material = new Material(Shader.Find("Standard")) { name = name, color = color };
             AssetDatabase.CreateAsset(material, path);
             return material;
+        }
+
+        // Standard shader defaults to opaque; this is the standard scripted
+        // equivalent of picking "Transparent" in the Rendering Mode dropdown.
+        private static void SetMaterialTransparent(Material material)
+        {
+            material.SetFloat("_Mode", 3f);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 3000;
         }
 
         private const int TextureSize = 64;
@@ -274,6 +305,34 @@ namespace Sandbox.EditorTools
             material.mainTexture = texture;
         }
 
+        // Fbm ripple pattern for subtle light/dark mottling; WaterAnimator
+        // scrolls this material's UV offset at runtime for a simple flowing
+        // shimmer without needing a custom shader.
+        private static void ApplyWaterTexture(Material material, string name, Color baseColor, Color highlightColor)
+        {
+            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Repeat,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < TextureSize; y++)
+            {
+                for (int x = 0; x < TextureSize; x++)
+                {
+                    float ripple = Fbm(x * 0.15f, y * 0.15f, 4);
+                    float n = Mathf.Clamp01(0.5f + (ripple - 0.5f) * 1.3f);
+                    texture.SetPixel(x, y, Color.Lerp(baseColor, highlightColor, n));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            material.mainTexture = texture;
+        }
+
         // Leaves need to read as a canopy of many small clumps rather than a
         // flat tinted gradient: large-scale noise carves out clump/shadow-gap
         // shapes, fine noise adds a dappled speckle on top of each clump.
@@ -395,6 +454,14 @@ namespace Sandbox.EditorTools
             float noiseOffsetX = 137.2f;
             float noiseOffsetZ = 291.7f;
 
+            // Lake constants are in world units; convert to the same
+            // grid-index space the heightmap loop below works in.
+            Vector2 lakeCenterGrid = new Vector2(
+                (LakeCenterX + worldSize / 2f) / worldSize * (resolution - 1),
+                (LakeCenterZ + worldSize / 2f) / worldSize * (resolution - 1));
+            float lakeRadiusGrid = LakeRadius / worldSize * (resolution - 1);
+            float lakeBlendGrid = LakeShoreBlend / worldSize * (resolution - 1);
+
             float[,] heights = new float[resolution, resolution];
             for (int z = 0; z < resolution; z++)
             {
@@ -403,7 +470,19 @@ namespace Sandbox.EditorTools
                     float noise = Mathf.PerlinNoise((x + noiseOffsetX) * noiseScale, (z + noiseOffsetZ) * noiseScale);
                     float distFromCenter = Vector2.Distance(new Vector2(x, z), center);
                     float falloff = Mathf.Clamp01(Mathf.InverseLerp(flatRadius, falloffRadius, distFromCenter));
-                    heights[z, x] = noise * falloff;
+                    float height = noise * falloff;
+
+                    // Carve a basin down to ground level for the lake bed,
+                    // blending smoothly back to the ambient terrain height
+                    // over the shore band instead of a hard-edged pit.
+                    float distFromLake = Vector2.Distance(new Vector2(x, z), lakeCenterGrid);
+                    if (distFromLake < lakeRadiusGrid + lakeBlendGrid)
+                    {
+                        float t = Mathf.Clamp01(Mathf.InverseLerp(lakeRadiusGrid, lakeRadiusGrid + lakeBlendGrid, distFromLake));
+                        height = Mathf.Lerp(0f, height, t);
+                    }
+
+                    heights[z, x] = height;
                 }
             }
             terrainData.SetHeights(0, 0, heights);
@@ -419,6 +498,22 @@ namespace Sandbox.EditorTools
             terrain.materialType = Terrain.MaterialType.Custom;
             terrain.materialTemplate = material;
             return terrain;
+        }
+
+        // A flattened cylinder gives a circular water surface for free,
+        // matching the lake basin's radius exactly with no custom mesh work.
+        // No collider -- it's purely visual, so raycasts (block placement,
+        // props) pass through to the terrain underneath instead of hitting
+        // an invisible flat plane.
+        private static void CreateLake(Material waterMaterial)
+        {
+            GameObject water = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            water.name = "Lake";
+            Object.DestroyImmediate(water.GetComponent<Collider>());
+            water.transform.position = new Vector3(LakeCenterX, LakeSurfaceY, LakeCenterZ);
+            water.transform.localScale = new Vector3(LakeRadius * 2f, 0.05f, LakeRadius * 2f);
+            water.GetComponent<Renderer>().sharedMaterial = waterMaterial;
+            water.AddComponent<WaterAnimator>();
         }
 
         private static GameObject CreateRockPrefab(Material material)
@@ -512,6 +607,9 @@ namespace Sandbox.EditorTools
 
         private static void ScatterProps(Transform parent, GameObject prefab, int count, float worldSize, float clearRadius, Terrain terrain, float minScale, float maxScale)
         {
+            Vector2 lakeCenter = new Vector2(LakeCenterX, LakeCenterZ);
+            float lakeExclusionRadius = LakeRadius + LakeShoreBlend + 2f; // keep props off the shore, not just out of the water
+
             for (int i = 0; i < count; i++)
             {
                 float x, z;
@@ -519,7 +617,7 @@ namespace Sandbox.EditorTools
                 {
                     x = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
                     z = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
-                } while (new Vector2(x, z).magnitude < clearRadius);
+                } while (new Vector2(x, z).magnitude < clearRadius || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius);
 
                 float y = terrain.SampleHeight(new Vector3(x, 0f, z));
                 Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
