@@ -889,6 +889,7 @@ namespace Sandbox.EditorTools
             CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
+            canvasGo.AddComponent<GraphicRaycaster>();
 
             string[] labels = { "1\nCube", "2\nWedge", "3\nCylinder", "4\nBall" };
             const float slotSize = 90f;
@@ -976,6 +977,10 @@ namespace Sandbox.EditorTools
             CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
+            // Without this, the EventSystem has no way to route pointer/touch
+            // events to anything on this canvas -- the joysticks and buttons
+            // would be completely inert regardless of device or input method.
+            canvasGo.AddComponent<GraphicRaycaster>();
 
             Sprite ringSprite = CreateCircleSprite("JoystickRing", new Color(1f, 1f, 1f, 0.35f), ringOnly: true);
             Sprite knobSprite = CreateCircleSprite("JoystickKnob", new Color(1f, 1f, 1f, 0.6f), ringOnly: false);
