@@ -1,6 +1,7 @@
 using System.IO;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -995,16 +996,19 @@ namespace Sandbox.EditorTools
             SetPrivateField(playerController, "moveJoystick", moveJoystick);
             SetPrivateField(cameraController, "lookJoystick", lookJoystick);
 
-            // Small 2x2 action cluster above the look joystick. gridBottom
-            // needs to clear the look joystick's top edge (center 220 +
-            // radius 110 = 330) plus a margin, not just the old smaller size.
+            // Single row instead of a 2x2 grid -- half the vertical footprint,
+            // so it's much easier to clear the look joystick's top edge
+            // (center 220 + radius 110 = 330) with a comfortable margin
+            // instead of nearly touching it.
             const float buttonSize = 76f;
+            const float buttonGap = 10f;
             const float gridRight = -30f;
-            const float gridBottom = 350f;
-            CreateActionButton(canvasGo.transform, "JumpButton", "Jump", new Vector2(gridRight - buttonSize - 10f, gridBottom + buttonSize + 10f), buttonSprite, font, playerController.TriggerJump);
-            CreateActionButton(canvasGo.transform, "PlaceButton", "Place", new Vector2(gridRight, gridBottom + buttonSize + 10f), buttonSprite, font, placer.PerformPlace);
-            CreateActionButton(canvasGo.transform, "UndoButton", "Undo", new Vector2(gridRight - buttonSize - 10f, gridBottom), buttonSprite, font, placer.PerformUndo);
+            const float gridBottom = 370f;
+            const float buttonStep = buttonSize + buttonGap;
             CreateActionButton(canvasGo.transform, "RemoveButton", "Remove", new Vector2(gridRight, gridBottom), buttonSprite, font, placer.PerformRemove);
+            CreateActionButton(canvasGo.transform, "UndoButton", "Undo", new Vector2(gridRight - buttonStep, gridBottom), buttonSprite, font, placer.PerformUndo);
+            CreateActionButton(canvasGo.transform, "PlaceButton", "Place", new Vector2(gridRight - 2f * buttonStep, gridBottom), buttonSprite, font, placer.PerformPlace);
+            CreateActionButton(canvasGo.transform, "JumpButton", "Jump", new Vector2(gridRight - 3f * buttonStep, gridBottom), buttonSprite, font, playerController.TriggerJump);
 
             // Fixed aim point for place/remove on touch (there's no cursor to
             // aim from -- BuildPlacer already falls back to screen-center
@@ -1088,7 +1092,13 @@ namespace Sandbox.EditorTools
 
             Button button = buttonGo.AddComponent<Button>();
             button.targetGraphic = image;
-            button.onClick.AddListener(onClick);
+            // UnityEvent.AddListener registers a runtime-only listener that
+            // Unity's own serializer does NOT persist into the saved scene
+            // -- the button would exist and look fine but silently do
+            // nothing once loaded from disk (in Play mode or a build).
+            // AddPersistentListener is the editor-tooling equivalent of
+            // wiring an onClick entry in the Inspector, which does save.
+            UnityEventTools.AddPersistentListener(button.onClick, onClick);
 
             GameObject textGo = new GameObject("Label");
             textGo.transform.SetParent(buttonGo.transform, false);
