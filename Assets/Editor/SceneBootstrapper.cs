@@ -109,6 +109,7 @@ namespace Sandbox.EditorTools
             map.AddAction("Place", InputActionType.Button, binding: "<Mouse>/leftButton");
             map.AddAction("Remove", InputActionType.Button, binding: "<Keyboard>/q");
             map.AddAction("Rotate", InputActionType.Button, binding: "<Keyboard>/r");
+            map.AddAction("Undo", InputActionType.Button, binding: "<Keyboard>/backspace");
             map.AddAction("Save", InputActionType.Button, binding: "<Keyboard>/f5");
             map.AddAction("Load", InputActionType.Button, binding: "<Keyboard>/f9");
 
@@ -688,7 +689,7 @@ namespace Sandbox.EditorTools
             hintRect.anchoredPosition = new Vector2(0f, 10f);
 
             Text hintText = hintGo.AddComponent<Text>();
-            hintText.text = "1-4 Select Shape   |   R Rotate   |   LMB Place   |   Q Remove   |   RMB+Drag Look   |   F5 Save   |   F9 Load";
+            hintText.text = "1-4 Select Shape   |   R Rotate   |   LMB Place   |   Q Remove   |   Backspace Undo   |   RMB+Drag Look   |   Scroll/+- Zoom   |   F5 Save   |   F9 Load";
             hintText.font = font;
             hintText.fontSize = 14;
             hintText.alignment = TextAnchor.MiddleCenter;

@@ -127,6 +127,11 @@ namespace Sandbox.Multiplayer
 
         // ----- Outgoing block requests (called by BuildPlacer) -----
 
+        // Single-level undo of this client's own most recent placement --
+        // not a global undo, since removing someone else's block via your
+        // own undo key would be a bad surprise in a shared world.
+        private int lastPlacedNetworkId = -1;
+
         public void RequestPlaceBlock(int shapeIndex, Vector3 position, int rotationY, Color color)
         {
             StartCoroutine(PostPlaceBlock(shapeIndex, position, rotationY, color));
@@ -137,6 +142,15 @@ namespace Sandbox.Multiplayer
             if (networkId < 0)
                 return;
             StartCoroutine(DeleteBlock(networkId));
+        }
+
+        public void UndoLastPlacement()
+        {
+            if (lastPlacedNetworkId < 0)
+                return;
+
+            RequestRemoveBlock(lastPlacedNetworkId);
+            lastPlacedNetworkId = -1;
         }
 
         private IEnumerator PostPlaceBlock(int shapeIndex, Vector3 position, int rotationY, Color color)
@@ -160,7 +174,14 @@ namespace Sandbox.Multiplayer
             yield return request.SendWebRequest();
 
             if (request.result != UnityWebRequest.Result.Success)
+            {
                 Debug.LogError($"MultiplayerManager: place block failed: {request.error}");
+                yield break;
+            }
+
+            PlaceResponse response = JsonUtility.FromJson<PlaceResponse>(request.downloadHandler.text);
+            if (response != null)
+                lastPlacedNetworkId = response.id;
         }
 
         private IEnumerator DeleteBlock(int networkId)
@@ -323,5 +344,6 @@ namespace Sandbox.Multiplayer
 
         [Serializable] private class BlockRemovedEvent { public int id; }
         [Serializable] private class BlockListWrapper { public BlockEvent[] items; }
+        [Serializable] private class PlaceResponse { public int id; }
     }
 }

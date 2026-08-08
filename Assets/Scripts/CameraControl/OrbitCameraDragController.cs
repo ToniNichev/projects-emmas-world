@@ -49,8 +49,12 @@ namespace Sandbox.CameraControl
             float zoomDelta = 0f;
 
             // Scroll up (positive y) zooms in, matching Roblox's convention.
+            // The 0.03 multiplier (vs. an initial untested guess of 0.01) is
+            // tuned for trackpad/Magic Mouse-style continuous small-delta
+            // scrolling rather than discrete notch-wheel deltas -- confirmed
+            // too slow to be usable in real testing at the lower value.
             if (Mouse.current != null)
-                zoomDelta -= Mouse.current.scroll.ReadValue().y * scrollZoomSpeed * 0.01f;
+                zoomDelta -= Mouse.current.scroll.ReadValue().y * scrollZoomSpeed * 0.03f;
 
             if (Keyboard.current != null)
             {

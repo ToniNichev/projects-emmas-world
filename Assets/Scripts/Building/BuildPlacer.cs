@@ -26,8 +26,14 @@ namespace Sandbox.Building
         private InputAction removeAction;
         private InputAction selectShapeAction;
         private InputAction rotateAction;
+        private InputAction undoAction;
         private SoundEffects soundEffects;
         private MultiplayerManager multiplayerManager;
+
+        // Local (non-multiplayer) undo target. In multiplayer mode, undo is
+        // tracked server-side-confirmed instead (see MultiplayerManager),
+        // since a block isn't "real" here until it round-trips.
+        private GameObject lastLocallyPlacedBlock;
 
         public int SelectedShapeIndex => selectedShapeIndex;
 
@@ -52,6 +58,7 @@ namespace Sandbox.Building
             removeAction = map.FindAction("Remove", throwIfNotFound: true);
             selectShapeAction = map.FindAction("SelectShape", throwIfNotFound: true);
             rotateAction = map.FindAction("Rotate", throwIfNotFound: true);
+            undoAction = map.FindAction("Undo", throwIfNotFound: true);
         }
 
         private void OnEnable()
@@ -60,10 +67,12 @@ namespace Sandbox.Building
             removeAction.performed += OnRemove;
             selectShapeAction.performed += OnSelectShape;
             rotateAction.performed += OnRotate;
+            undoAction.performed += OnUndo;
             placeAction.Enable();
             removeAction.Enable();
             selectShapeAction.Enable();
             rotateAction.Enable();
+            undoAction.Enable();
         }
 
         private void OnDisable()
@@ -72,6 +81,7 @@ namespace Sandbox.Building
             removeAction.performed -= OnRemove;
             selectShapeAction.performed -= OnSelectShape;
             rotateAction.performed -= OnRotate;
+            undoAction.performed -= OnUndo;
         }
 
         private void Update()
@@ -124,6 +134,28 @@ namespace Sandbox.Building
             Renderer blockRenderer = block.GetComponent<Renderer>();
             if (blockRenderer != null)
                 blockRenderer.material.color = color;
+
+            lastLocallyPlacedBlock = block;
+        }
+
+        private void OnUndo(InputAction.CallbackContext context)
+        {
+            if (!context.performed)
+                return;
+
+            if (multiplayerManager != null && multiplayerManager.IsConnected)
+            {
+                multiplayerManager.UndoLastPlacement();
+                soundEffects?.PlayRemove();
+                return;
+            }
+
+            if (lastLocallyPlacedBlock == null)
+                return;
+
+            Destroy(lastLocallyPlacedBlock);
+            lastLocallyPlacedBlock = null;
+            soundEffects?.PlayRemove();
         }
 
         private void OnSelectShape(InputAction.CallbackContext context)
