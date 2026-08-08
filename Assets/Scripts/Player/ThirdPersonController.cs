@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Sandbox.Audio;
+using Sandbox.UI;
 
 namespace Sandbox.Player
 {
@@ -16,6 +17,7 @@ namespace Sandbox.Player
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
         [SerializeField] private float footstepInterval = 0.35f;
+        [SerializeField] private VirtualJoystick moveJoystick;
 
         private CharacterController controller;
         private SoundEffects soundEffects;
@@ -28,7 +30,14 @@ namespace Sandbox.Player
         private Vector3 verticalVelocity;
         private float footstepTimer;
 
-        public bool IsMoving => moveInput.sqrMagnitude > 0.01f;
+        // Combines keyboard/gamepad input with the on-screen movement
+        // joystick (when present) so both work simultaneously without one
+        // overriding the other.
+        private Vector2 CombinedMoveInput => moveJoystick != null
+            ? Vector2.ClampMagnitude(moveInput + moveJoystick.Value, 1f)
+            : moveInput;
+
+        public bool IsMoving => CombinedMoveInput.sqrMagnitude > 0.01f;
         public bool IsSprinting => sprintHeld;
 
         private void Awake()
@@ -77,7 +86,15 @@ namespace Sandbox.Player
 
         private void OnJump(InputAction.CallbackContext context)
         {
-            if (context.performed && controller.isGrounded)
+            if (context.performed)
+                TriggerJump();
+        }
+
+        // Public so the on-screen mobile jump button can call it directly
+        // without needing to fake an InputAction.CallbackContext.
+        public void TriggerJump()
+        {
+            if (controller.isGrounded)
                 jumpQueued = true;
         }
 
@@ -107,7 +124,7 @@ namespace Sandbox.Player
         {
             // Gated on movement input rather than controller.isGrounded, which is
             // notoriously unreliable at rest even while standing on flat ground.
-            if (moveInput.sqrMagnitude < 0.01f)
+            if (CombinedMoveInput.sqrMagnitude < 0.01f)
             {
                 footstepTimer = 0f;
                 return;
@@ -123,7 +140,8 @@ namespace Sandbox.Player
 
         private void ApplyMovement()
         {
-            Vector3 inputDir = new Vector3(moveInput.x, 0f, moveInput.y);
+            Vector2 combinedInput = CombinedMoveInput;
+            Vector3 inputDir = new Vector3(combinedInput.x, 0f, combinedInput.y);
             if (inputDir.sqrMagnitude < 0.0001f)
             {
                 controller.Move(verticalVelocity * Time.deltaTime);

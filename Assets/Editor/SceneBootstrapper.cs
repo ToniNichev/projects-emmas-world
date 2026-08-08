@@ -3,7 +3,9 @@ using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.SceneManagement;
 using UnityEngine.ProBuilder;
 using UnityEngine.UI;
@@ -92,8 +94,10 @@ namespace Sandbox.EditorTools
             GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial);
 
             GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, remoteAvatarPrefab);
-            BuildCamera(player.transform);
+            OrbitCameraDragController cameraController = BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
+            BuildEventSystem();
+            BuildMobileControls(player.GetComponent<ThirdPersonController>(), cameraController, player.GetComponent<BuildPlacer>());
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -850,7 +854,7 @@ namespace Sandbox.EditorTools
             CreateBodyPart(pivot.transform, name, new Vector3(0f, -limbSize.y / 2f, 0f), limbSize, material);
         }
 
-        private static void BuildCamera(Transform playerTransform)
+        private static OrbitCameraDragController BuildCamera(Transform playerTransform)
         {
             GameObject camGo = new GameObject("PlayerFollowCamera");
             CinemachineCamera cmCam = camGo.AddComponent<CinemachineCamera>();
@@ -871,6 +875,8 @@ namespace Sandbox.EditorTools
             mainCamGo.AddComponent<Camera>();
             mainCamGo.AddComponent<AudioListener>();
             mainCamGo.AddComponent<CinemachineBrain>();
+
+            return dragController;
         }
 
         private static void BuildPaletteUI(BuildPlacer placer)
@@ -941,6 +947,187 @@ namespace Sandbox.EditorTools
             BuildPaletteUI paletteUi = canvasGo.AddComponent<BuildPaletteUI>();
             SetPrivateField(paletteUi, "buildPlacer", placer);
             SetPrivateField(paletteUi, "slotBackgrounds", slots);
+        }
+
+        // UI pointer/drag events (joysticks, buttons) need an EventSystem in
+        // the scene to be dispatched at all -- there wasn't one before since
+        // the existing UI (palette, hints) was purely visual.
+        private static void BuildEventSystem()
+        {
+            GameObject go = new GameObject("EventSystem");
+            go.AddComponent<EventSystem>();
+            InputSystemUIInputModule inputModule = go.AddComponent<InputSystemUIInputModule>();
+            inputModule.AssignDefaultActions();
+        }
+
+        // Left joystick drives movement, right joystick drives camera look --
+        // mirrors Roblox's own mobile control scheme. Plus a small cluster of
+        // tap buttons for actions that have no touch equivalent otherwise
+        // (jump, place, remove, undo). Wired onto the existing player/camera
+        // components rather than replacing their keyboard/mouse paths, so
+        // desktop input keeps working unchanged alongside these.
+        private static void BuildMobileControls(ThirdPersonController playerController, OrbitCameraDragController cameraController, BuildPlacer placer)
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            GameObject canvasGo = new GameObject("MobileControlsUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            Sprite ringSprite = CreateCircleSprite("JoystickRing", new Color(1f, 1f, 1f, 0.35f), ringOnly: true);
+            Sprite knobSprite = CreateCircleSprite("JoystickKnob", new Color(1f, 1f, 1f, 0.6f), ringOnly: false);
+            Sprite buttonSprite = CreateCircleSprite("ActionButton", new Color(0f, 0f, 0f, 0.5f), ringOnly: false);
+
+            VirtualJoystick moveJoystick = CreateJoystick(canvasGo.transform, "MoveJoystick", new Vector2(0f, 0f), new Vector2(130f, 130f), ringSprite, knobSprite);
+            VirtualJoystick lookJoystick = CreateJoystick(canvasGo.transform, "LookJoystick", new Vector2(1f, 0f), new Vector2(-130f, 130f), ringSprite, knobSprite);
+
+            SetPrivateField(playerController, "moveJoystick", moveJoystick);
+            SetPrivateField(cameraController, "lookJoystick", lookJoystick);
+
+            // Small 2x2 action cluster above the look joystick.
+            const float buttonSize = 64f;
+            const float gridRight = -30f;
+            const float gridBottom = 230f;
+            CreateActionButton(canvasGo.transform, "JumpButton", "Jump", new Vector2(gridRight - buttonSize - 10f, gridBottom + buttonSize + 10f), buttonSprite, font, playerController.TriggerJump);
+            CreateActionButton(canvasGo.transform, "PlaceButton", "Place", new Vector2(gridRight, gridBottom + buttonSize + 10f), buttonSprite, font, placer.PerformPlace);
+            CreateActionButton(canvasGo.transform, "UndoButton", "Undo", new Vector2(gridRight - buttonSize - 10f, gridBottom), buttonSprite, font, placer.PerformUndo);
+            CreateActionButton(canvasGo.transform, "RemoveButton", "Remove", new Vector2(gridRight, gridBottom), buttonSprite, font, placer.PerformRemove);
+
+            // Fixed aim point for place/remove on touch (there's no cursor to
+            // aim from -- BuildPlacer already falls back to screen-center
+            // when a Touchscreen is present).
+            GameObject crosshairGo = new GameObject("Crosshair");
+            crosshairGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform crosshairRect = crosshairGo.AddComponent<RectTransform>();
+            crosshairRect.anchorMin = new Vector2(0.5f, 0.5f);
+            crosshairRect.anchorMax = new Vector2(0.5f, 0.5f);
+            crosshairRect.sizeDelta = new Vector2(10f, 10f);
+            crosshairRect.anchoredPosition = Vector2.zero;
+            Image crosshairImage = crosshairGo.AddComponent<Image>();
+            crosshairImage.sprite = knobSprite;
+            crosshairImage.color = new Color(1f, 1f, 1f, 0.8f);
+            crosshairImage.raycastTarget = false;
+
+            // Only touch devices need any of this -- MobileControlsVisibility
+            // disables the whole canvas at runtime for mouse/keyboard players.
+            // (Must stay active here at edit time: a GameObject that starts
+            // disabled never runs Awake, so a component depending on Awake to
+            // decide whether to show itself would never get the chance to.)
+            canvasGo.AddComponent<MobileControlsVisibility>();
+        }
+
+        private static VirtualJoystick CreateJoystick(Transform parent, string name, Vector2 cornerAnchor, Vector2 anchoredPosition, Sprite ringSprite, Sprite knobSprite)
+        {
+            const float backgroundSize = 180f;
+            const float knobSize = 80f;
+
+            GameObject bgGo = new GameObject(name);
+            bgGo.transform.SetParent(parent, false);
+            RectTransform bgRect = bgGo.AddComponent<RectTransform>();
+            bgRect.anchorMin = cornerAnchor;
+            bgRect.anchorMax = cornerAnchor;
+            bgRect.pivot = cornerAnchor;
+            bgRect.sizeDelta = new Vector2(backgroundSize, backgroundSize);
+            bgRect.anchoredPosition = anchoredPosition;
+
+            Image bgImage = bgGo.AddComponent<Image>();
+            bgImage.sprite = ringSprite;
+            bgImage.color = Color.white;
+
+            GameObject knobGo = new GameObject("Knob");
+            knobGo.transform.SetParent(bgGo.transform, false);
+            RectTransform knobRect = knobGo.AddComponent<RectTransform>();
+            knobRect.anchorMin = new Vector2(0.5f, 0.5f);
+            knobRect.anchorMax = new Vector2(0.5f, 0.5f);
+            knobRect.sizeDelta = new Vector2(knobSize, knobSize);
+            knobRect.anchoredPosition = Vector2.zero;
+
+            Image knobImage = knobGo.AddComponent<Image>();
+            knobImage.sprite = knobSprite;
+            knobImage.color = Color.white;
+
+            VirtualJoystick joystick = bgGo.AddComponent<VirtualJoystick>();
+            SetPrivateField(joystick, "handle", knobRect);
+            return joystick;
+        }
+
+        private static void CreateActionButton(Transform parent, string name, string label, Vector2 anchoredPosition, Sprite bgSprite, Font font, UnityEngine.Events.UnityAction onClick)
+        {
+            GameObject buttonGo = new GameObject(name);
+            buttonGo.transform.SetParent(parent, false);
+            RectTransform rect = buttonGo.AddComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(1f, 0f);
+            rect.sizeDelta = new Vector2(64f, 64f);
+            rect.anchoredPosition = anchoredPosition;
+
+            Image image = buttonGo.AddComponent<Image>();
+            image.sprite = bgSprite;
+            image.color = Color.white;
+
+            Button button = buttonGo.AddComponent<Button>();
+            button.targetGraphic = image;
+            button.onClick.AddListener(onClick);
+
+            GameObject textGo = new GameObject("Label");
+            textGo.transform.SetParent(buttonGo.transform, false);
+            RectTransform textRect = textGo.AddComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+
+            Text text = textGo.AddComponent<Text>();
+            text.text = label;
+            text.font = font;
+            text.fontSize = 13;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            text.raycastTarget = false;
+        }
+
+        // Antialiased filled circle (knob/buttons) or ring (joystick
+        // background), generated the same way the world's other procedural
+        // textures are -- no external art anywhere in this project.
+        private static Sprite CreateCircleSprite(string name, Color color, bool ringOnly)
+        {
+            const int size = 128;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            Vector2 center = new Vector2(size / 2f, size / 2f);
+            float outerRadius = size / 2f - 2f;
+            float innerRadius = ringOnly ? outerRadius * 0.72f : 0f;
+
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), center);
+                    float outerAlpha = 1f - Mathf.Clamp01(Mathf.InverseLerp(outerRadius - 1.5f, outerRadius + 1.5f, dist));
+                    float innerAlpha = ringOnly ? Mathf.Clamp01(Mathf.InverseLerp(innerRadius - 1.5f, innerRadius + 1.5f, dist)) : 1f;
+                    float alpha = outerAlpha * innerAlpha;
+                    texture.SetPixel(x, y, new Color(color.r, color.g, color.b, color.a * alpha));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+
+            Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), 100f);
+            sprite.name = $"{name}_Sprite";
+            AssetDatabase.AddObjectToAsset(sprite, texture);
+            AssetDatabase.ImportAsset(AssetDatabase.GetAssetPath(texture));
+            return sprite;
         }
 
         private static void SetPrivateField(object target, string fieldName, object value)

@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Cinemachine;
+using Sandbox.UI;
 
 namespace Sandbox.CameraControl
 {
@@ -13,6 +14,11 @@ namespace Sandbox.CameraControl
         [SerializeField] private float minRadius = 2f;
         [SerializeField] private float maxRadius = 20f;
         [SerializeField] private float zoomSmoothSpeed = 10f;
+        [SerializeField] private VirtualJoystick lookJoystick;
+        // Degrees/sec of camera rotation at full stick deflection -- an
+        // initial estimate like the original zoom multiplier was, likely
+        // needs a real-device tuning pass once it's actually tested.
+        [SerializeField] private float lookJoystickSpeed = 70f;
 
         // A single scroll-wheel notch can report a large raw delta in one
         // frame (especially discrete mouse wheels vs. trackpads), which used
@@ -41,17 +47,34 @@ namespace Sandbox.CameraControl
 
         private void UpdateOrbit()
         {
-            if (Mouse.current == null || !Mouse.current.rightButton.isPressed)
-                return;
+            float horizontalDelta;
+            float verticalDelta;
 
-            Vector2 delta = Mouse.current.delta.ReadValue();
+            if (Mouse.current != null && Mouse.current.rightButton.isPressed)
+            {
+                Vector2 mouseDelta = Mouse.current.delta.ReadValue();
+                horizontalDelta = mouseDelta.x * sensitivity;
+                verticalDelta = -mouseDelta.y * sensitivity;
+            }
+            else if (lookJoystick != null && lookJoystick.Value.sqrMagnitude > 0.0001f)
+            {
+                // The joystick reports a held direction, not a per-frame
+                // delta, so it needs to be scaled by its own speed and
+                // deltaTime rather than the mouse-pixel-tuned sensitivity.
+                horizontalDelta = lookJoystick.Value.x * lookJoystickSpeed * Time.deltaTime;
+                verticalDelta = -lookJoystick.Value.y * lookJoystickSpeed * Time.deltaTime;
+            }
+            else
+            {
+                return;
+            }
 
             InputAxis horizontal = orbitalFollow.HorizontalAxis;
-            horizontal.Value = ApplyRange(horizontal.Value + delta.x * sensitivity, horizontal.Range, horizontal.Wrap);
+            horizontal.Value = ApplyRange(horizontal.Value + horizontalDelta, horizontal.Range, horizontal.Wrap);
             orbitalFollow.HorizontalAxis = horizontal;
 
             InputAxis vertical = orbitalFollow.VerticalAxis;
-            vertical.Value = ApplyRange(vertical.Value - delta.y * sensitivity, vertical.Range, vertical.Wrap);
+            vertical.Value = ApplyRange(vertical.Value + verticalDelta, vertical.Range, vertical.Wrap);
             orbitalFollow.VerticalAxis = vertical;
         }
 

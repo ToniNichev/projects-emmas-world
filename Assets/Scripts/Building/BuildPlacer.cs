@@ -108,9 +108,14 @@ namespace Sandbox.Building
 
         private void OnPlace(InputAction.CallbackContext context)
         {
-            if (!context.performed)
-                return;
+            if (context.performed)
+                PerformPlace();
+        }
 
+        // Public so the on-screen mobile Place button can call it directly
+        // without needing to fake an InputAction.CallbackContext.
+        public void PerformPlace()
+        {
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
@@ -140,9 +145,13 @@ namespace Sandbox.Building
 
         private void OnUndo(InputAction.CallbackContext context)
         {
-            if (!context.performed)
-                return;
+            if (context.performed)
+                PerformUndo();
+        }
 
+        // Public so the on-screen mobile Undo button can call it directly.
+        public void PerformUndo()
+        {
             if (multiplayerManager != null && multiplayerManager.IsConnected)
             {
                 multiplayerManager.UndoLastPlacement();
@@ -195,9 +204,13 @@ namespace Sandbox.Building
 
         private void OnRemove(InputAction.CallbackContext context)
         {
-            if (!context.performed)
-                return;
+            if (context.performed)
+                PerformRemove();
+        }
 
+        // Public so the on-screen mobile Remove button can call it directly.
+        public void PerformRemove()
+        {
             if (Physics.Raycast(placementCamera.ScreenPointToRay(GetPointerScreenPosition()), out RaycastHit hit, maxPlaceDistance, placementMask))
             {
                 PlacedBlock block = hit.collider.GetComponent<PlacedBlock>();
@@ -261,6 +274,12 @@ namespace Sandbox.Building
 
         private static Vector2 GetPointerScreenPosition()
         {
+            // On touch devices there's no meaningful cursor position to aim
+            // from -- place/remove aim from a fixed screen-center crosshair
+            // instead, driven by the look joystick rotating the camera.
+            if (Touchscreen.current != null)
+                return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+
             return Mouse.current != null ? Mouse.current.position.ReadValue() : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
         }
 
