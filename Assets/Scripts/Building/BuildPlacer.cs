@@ -40,7 +40,10 @@ namespace Sandbox.Building
                 placementCamera = Camera.main;
 
             soundEffects = GetComponent<SoundEffects>();
-            multiplayerManager = GetComponent<MultiplayerManager>();
+            // MultiplayerManager lives on its own child GameObject (named to
+            // match what the WebGL bridge's SendMessage calls expect), not on
+            // this same GameObject -- GetComponentInChildren still finds it.
+            multiplayerManager = GetComponentInChildren<MultiplayerManager>();
 
             RebuildGhost();
 

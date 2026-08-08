@@ -16,8 +16,17 @@ namespace Sandbox.EditorTools
                 .Select(s => s.path)
                 .ToArray();
 
+            // Uncompressed output rather than Unity's default gzip: the app's
+            // custom server.js serves public/ through Next's own request
+            // handler, which already gzips on the fly (next.config.mjs has
+            // compress: true) -- letting that handle it avoids needing to
+            // hand-configure Content-Encoding headers for pre-gzipped .gz
+            // files, which plain static file serving won't do by default.
+            PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Disabled;
+
             Debug.Log($"WEBGL_BUILD scenes={string.Join(",", scenes)}");
             Debug.Log($"WEBGL_BUILD activeBuildTarget={EditorUserBuildSettings.activeBuildTarget}");
+            Debug.Log($"WEBGL_BUILD compressionFormat={PlayerSettings.WebGL.compressionFormat}");
 
             var options = new BuildPlayerOptions
             {

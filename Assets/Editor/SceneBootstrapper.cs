@@ -504,7 +504,15 @@ namespace Sandbox.EditorTools
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
             player.AddComponent<AvatarAnimator>();
-            MultiplayerManager multiplayer = player.AddComponent<MultiplayerManager>();
+
+            // Its own GameObject, named to match exactly -- the WebGL bridge's
+            // SendMessage('MultiplayerManager', ...) calls look up a GameObject
+            // by that literal name in the scene, not by component type. Living
+            // on "Player" would silently fail every incoming socket event.
+            GameObject multiplayerGo = new GameObject("MultiplayerManager");
+            multiplayerGo.transform.SetParent(player.transform, false);
+            MultiplayerManager multiplayer = multiplayerGo.AddComponent<MultiplayerManager>();
+
             BuildPlacer placer = player.AddComponent<BuildPlacer>();
             WorldSaveSystem save = player.AddComponent<WorldSaveSystem>();
 
