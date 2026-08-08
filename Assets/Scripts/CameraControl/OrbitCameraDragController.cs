@@ -12,11 +12,22 @@ namespace Sandbox.CameraControl
         [SerializeField] private float keyZoomSpeed = 8f;
         [SerializeField] private float minRadius = 2f;
         [SerializeField] private float maxRadius = 20f;
+        [SerializeField] private float zoomSmoothSpeed = 10f;
+
+        // A single scroll-wheel notch can report a large raw delta in one
+        // frame (especially discrete mouse wheels vs. trackpads), which used
+        // to snap Radius straight to it and looked like an instant jump.
+        // Instead, input only moves this target, and Radius eases toward it
+        // every frame regardless of how big the input spike was.
+        private float targetRadius;
 
         private void Awake()
         {
             if (orbitalFollow == null)
                 orbitalFollow = GetComponent<CinemachineOrbitalFollow>();
+
+            if (orbitalFollow != null)
+                targetRadius = orbitalFollow.Radius;
         }
 
         private void Update()
@@ -49,10 +60,6 @@ namespace Sandbox.CameraControl
             float zoomDelta = 0f;
 
             // Scroll up (positive y) zooms in, matching Roblox's convention.
-            // The 0.03 multiplier (vs. an initial untested guess of 0.01) is
-            // tuned for trackpad/Magic Mouse-style continuous small-delta
-            // scrolling rather than discrete notch-wheel deltas -- confirmed
-            // too slow to be usable in real testing at the lower value.
             if (Mouse.current != null)
                 zoomDelta -= Mouse.current.scroll.ReadValue().y * scrollZoomSpeed * 0.03f;
 
@@ -64,10 +71,13 @@ namespace Sandbox.CameraControl
                     zoomDelta += keyZoomSpeed * Time.deltaTime;
             }
 
-            if (Mathf.Approximately(zoomDelta, 0f))
-                return;
+            if (!Mathf.Approximately(zoomDelta, 0f))
+                targetRadius = Mathf.Clamp(targetRadius + zoomDelta, minRadius, maxRadius);
 
-            orbitalFollow.Radius = Mathf.Clamp(orbitalFollow.Radius + zoomDelta, minRadius, maxRadius);
+            // Ease toward the target every frame -- this is what actually
+            // smooths things out, independent of how big a single scroll
+            // event's raw delta was.
+            orbitalFollow.Radius = Mathf.Lerp(orbitalFollow.Radius, targetRadius, 1f - Mathf.Exp(-zoomSmoothSpeed * Time.deltaTime));
         }
 
         private static float ApplyRange(float value, Vector2 range, bool wrap)
