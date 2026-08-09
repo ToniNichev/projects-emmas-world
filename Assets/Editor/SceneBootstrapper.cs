@@ -49,7 +49,7 @@ namespace Sandbox.EditorTools
         // lost in real testing.
         private const float CourseStartX = 25f;
         private const float CourseStartZ = 0f;
-        private const float CourseExclusionRadius = 20f; // generous circle covering the whole course footprint
+        private const float CourseExclusionRadius = 12f; // the spiral tower's footprint is much smaller than the old straight-line course
 
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
@@ -547,41 +547,49 @@ namespace Sandbox.EditorTools
         {
             GameObject courseRoot = new GameObject("ObstacleCourse");
 
-            float startY = terrain.SampleHeight(new Vector3(CourseStartX, 0f, CourseStartZ));
-            Vector3 cursor = new Vector3(CourseStartX, startY + 0.5f, CourseStartZ);
-            Color courseColor = new Color(0.9f, 0.6f, 0.2f);
-            Color startFinishColor = new Color(0.3f, 0.55f, 0.95f);
+            float baseY = terrain.SampleHeight(new Vector3(CourseStartX, 0f, CourseStartZ));
+            Color climbColor = new Color(0.9f, 0.6f, 0.2f);
+            Color startColor = new Color(0.3f, 0.55f, 0.95f);
+            Color finishColor = new Color(1f, 0.84f, 0.2f);
 
-            // Big, flat, safe to stand on while lining up the first jump.
-            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], cursor, new Vector3(4f, 1f, 4f), startFinishColor);
+            // A spiral staircase around a fixed center point reads as an
+            // actual climb (and looks more dramatic) rather than a flat
+            // line of jumps. heightStep is comfortably within jump reach
+            // (jumpHeight=1.5 in ThirdPersonController); the chord distance
+            // between consecutive steps combines with that for a moderate
+            // running jump.
+            const float radius = 4.2f;
+            const float angleStepDegrees = 32f;
+            const float heightStep = 1.15f;
+            const int climbSteps = 12;
+            var shapes = new[] { 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2 }; // cube-heavy, wedge/cylinder/ball for variety
 
-            // Offset from the previous platform, which shape to use (0=Cube,
-            // 1=Wedge, 2=Cylinder, 3=Ball), and the platform's own scale.
-            // Gaps widen gradually across the course.
-            var steps = new (Vector3 offset, int shape, Vector3 scale)[]
+            Vector3 startPos = new Vector3(CourseStartX + radius, baseY + 0.5f, CourseStartZ);
+            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], startPos, new Vector3(3f, 1f, 3f), startColor);
+
+            for (int i = 1; i <= climbSteps; i++)
             {
-                (new Vector3(2.2f, 0f, 0f), 0, Vector3.one),
-                (new Vector3(2.4f, 0.3f, 0.6f), 1, Vector3.one),
-                (new Vector3(2.6f, 0.2f, -0.6f), 0, Vector3.one),
-                (new Vector3(2.8f, -0.3f, 0.6f), 2, Vector3.one),
-                (new Vector3(3.0f, 0.4f, -0.6f), 0, Vector3.one),
-                (new Vector3(3.0f, 0f, 0.6f), 3, Vector3.one),
-                (new Vector3(3.2f, 0.3f, -0.6f), 0, Vector3.one),
-            };
-
-            foreach (var step in steps)
-            {
-                cursor += step.offset;
-                CreateCoursePlatform(courseRoot.transform, blockPrefabs[step.shape], cursor, step.scale, courseColor);
+                float angleRad = i * angleStepDegrees * Mathf.Deg2Rad;
+                Vector3 pos = new Vector3(
+                    CourseStartX + radius * Mathf.Cos(angleRad),
+                    baseY + 0.5f + i * heightStep,
+                    CourseStartZ + radius * Mathf.Sin(angleRad));
+                CreateCoursePlatform(courseRoot.transform, blockPrefabs[shapes[(i - 1) % shapes.Length]], pos, Vector3.one, climbColor);
             }
 
-            // Finish platform: big, flat, and a different color from the
-            // rest of the course -- unmistakably the end.
-            cursor += new Vector3(2.6f, 0.3f, 0f);
-            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], cursor, new Vector3(4f, 1f, 4f), new Color(1f, 0.84f, 0.2f));
+            // Finish platform: continues the spiral one more step, big and
+            // gold at the top -- unmistakably the summit.
+            float finishAngle = (climbSteps + 1) * angleStepDegrees * Mathf.Deg2Rad;
+            float finishHeight = baseY + 0.5f + (climbSteps + 1) * heightStep;
+            Vector3 finishPos = new Vector3(
+                CourseStartX + radius * Mathf.Cos(finishAngle),
+                finishHeight,
+                CourseStartZ + radius * Mathf.Sin(finishAngle));
+            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], finishPos, new Vector3(3.5f, 1f, 3.5f), finishColor);
 
-            Vector3 zoneCenter = new Vector3(CourseStartX + (cursor.x - CourseStartX) / 2f, startY + 4f, CourseStartZ);
-            Vector3 zoneSize = new Vector3(Mathf.Abs(cursor.x - CourseStartX) + 8f, 14f, 10f);
+            float totalHeight = finishHeight - baseY;
+            Vector3 zoneCenter = new Vector3(CourseStartX, baseY + totalHeight / 2f + 1f, CourseStartZ);
+            Vector3 zoneSize = new Vector3((radius + 3f) * 2f, totalHeight + 6f, (radius + 3f) * 2f);
             GameObject zoneGo = new GameObject("ObstacleCourseNoBuildZone");
             zoneGo.transform.SetParent(courseRoot.transform, false);
             zoneGo.transform.position = zoneCenter;
