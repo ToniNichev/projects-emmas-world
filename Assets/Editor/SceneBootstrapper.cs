@@ -135,7 +135,11 @@ namespace Sandbox.EditorTools
 
             map.AddAction("Sprint", InputActionType.Button, binding: "<Keyboard>/leftShift");
             map.AddAction("Jump", InputActionType.Button, binding: "<Keyboard>/space");
-            map.AddAction("Place", InputActionType.Button, binding: "<Mouse>/leftButton");
+            InputAction place = map.AddAction("Place", InputActionType.Button, binding: "<Mouse>/leftButton");
+            // Tap-to-place on touch, same as a click does on desktop --
+            // BuildPlacer.IsPointerOverUI keeps this from also firing when
+            // the tap is actually on the joysticks/corner buttons.
+            place.AddBinding("<Touchscreen>/primaryTouch/press");
             map.AddAction("Remove", InputActionType.Button, binding: "<Keyboard>/q");
             map.AddAction("Rotate", InputActionType.Button, binding: "<Keyboard>/r");
             map.AddAction("Undo", InputActionType.Button, binding: "<Keyboard>/backspace");
@@ -1009,30 +1013,20 @@ namespace Sandbox.EditorTools
             // Small icons instead of text -- at this button size text was
             // unreadable. Same procedural-generation approach as every other
             // texture in this project, no external art.
+            // Place has no button of its own -- tapping directly on the
+            // world places a block there (see BuildPlacer.OnPlace/
+            // GetPointerScreenPosition), same as a mouse click does on
+            // desktop. Rotate takes the freed-up slot since it previously
+            // had no touch equivalent at all (keyboard R only).
             Sprite iconJump = CreateIconSprite("IconJump", Color.white, IconShape.ArrowUp);
-            Sprite iconPlace = CreateIconSprite("IconPlace", Color.white, IconShape.Plus);
+            Sprite iconRotate = CreateIconSprite("IconRotate", Color.white, IconShape.Rotate);
             Sprite iconUndo = CreateIconSprite("IconUndo", Color.white, IconShape.ArrowLeft);
             Sprite iconRemove = CreateIconSprite("IconRemove", Color.white, IconShape.Cross);
 
             CreateCornerButton(canvasGo.transform, "JumpButton", iconJump, lookJoystickPos, flipX: false, flipY: false, cornerExtent, cornerSprite, playerController.TriggerJump);
-            CreateCornerButton(canvasGo.transform, "PlaceButton", iconPlace, lookJoystickPos, flipX: true, flipY: false, cornerExtent, cornerSprite, placer.PerformPlace);
+            CreateCornerButton(canvasGo.transform, "RotateButton", iconRotate, lookJoystickPos, flipX: true, flipY: false, cornerExtent, cornerSprite, placer.PerformRotate);
             CreateCornerButton(canvasGo.transform, "UndoButton", iconUndo, lookJoystickPos, flipX: false, flipY: true, cornerExtent, cornerSprite, placer.PerformUndo);
             CreateCornerButton(canvasGo.transform, "RemoveButton", iconRemove, lookJoystickPos, flipX: true, flipY: true, cornerExtent, cornerSprite, placer.PerformRemove);
-
-            // Fixed aim point for place/remove on touch (there's no cursor to
-            // aim from -- BuildPlacer already falls back to screen-center
-            // when a Touchscreen is present).
-            GameObject crosshairGo = new GameObject("Crosshair");
-            crosshairGo.transform.SetParent(canvasGo.transform, false);
-            RectTransform crosshairRect = crosshairGo.AddComponent<RectTransform>();
-            crosshairRect.anchorMin = new Vector2(0.5f, 0.5f);
-            crosshairRect.anchorMax = new Vector2(0.5f, 0.5f);
-            crosshairRect.sizeDelta = new Vector2(10f, 10f);
-            crosshairRect.anchoredPosition = Vector2.zero;
-            Image crosshairImage = crosshairGo.AddComponent<Image>();
-            crosshairImage.sprite = knobSprite;
-            crosshairImage.color = new Color(1f, 1f, 1f, 0.8f);
-            crosshairImage.raycastTarget = false;
 
             // Only touch devices need any of this -- MobileControlsVisibility
             // disables the whole canvas at runtime for mouse/keyboard players.
@@ -1288,7 +1282,7 @@ namespace Sandbox.EditorTools
             return sprite;
         }
 
-        private enum IconShape { Plus, Cross, ArrowUp, ArrowLeft }
+        private enum IconShape { Plus, Cross, ArrowUp, ArrowLeft, Rotate }
 
         // Small bold glyphs for the action buttons -- procedurally drawn
         // like every other texture in this project, no external art/fonts.
@@ -1359,6 +1353,34 @@ namespace Sandbox.EditorTools
                             }
                             float stem = SoftEdge(Mathf.Abs(py - center), stemHalf) * SoftRange(px, headBaseX - 4f, stemEndX);
                             alpha = Mathf.Clamp01(head + stem);
+                            break;
+                        }
+                        case IconShape.Rotate:
+                        {
+                            float dx = px - center, dy = py - center;
+                            float r = Mathf.Sqrt(dx * dx + dy * dy);
+                            const float ringMid = 19f;
+                            const float ringHalf = 4.5f;
+                            float ringAlpha = SoftEdge(Mathf.Abs(r - ringMid), ringHalf);
+
+                            float angle = Mathf.Atan2(dy, dx) * Mathf.Rad2Deg;
+                            if (angle < 0f) angle += 360f;
+                            // Arc sweeps most of the circle, leaving a gap
+                            // near the top for the arrowhead to sit in.
+                            float arcAlpha = (angle >= 15f && angle <= 320f) ? 1f : 0f;
+
+                            // Small triangular arrowhead at the arc's
+                            // leading (320deg) end, tangent to the ring.
+                            float headAlpha = 0f;
+                            float angleDiff = Mathf.DeltaAngle(320f, angle);
+                            if (angleDiff > -22f && angleDiff < 12f)
+                            {
+                                float t = Mathf.InverseLerp(-22f, 12f, angleDiff);
+                                float allowedRadial = Mathf.Lerp(ringHalf * 2.4f, 0f, t);
+                                headAlpha = SoftEdge(Mathf.Abs(r - ringMid), allowedRadial);
+                            }
+
+                            alpha = Mathf.Clamp01(ringAlpha * arcAlpha + headAlpha);
                             break;
                         }
                         default:

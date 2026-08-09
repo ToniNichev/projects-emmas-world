@@ -1,10 +1,10 @@
 using System;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 using Sandbox.Audio;
 using Sandbox.Multiplayer;
 using Sandbox.Save;
-using Sandbox.UI;
 
 namespace Sandbox.Building
 {
@@ -109,12 +109,22 @@ namespace Sandbox.Building
 
         private void OnPlace(InputAction.CallbackContext context)
         {
-            if (context.performed)
-                PerformPlace();
+            if (!context.performed)
+                return;
+
+            // Place is bound to touch taps as well as LMB (see
+            // BuildInputActions), so a tap on the move/look joysticks or the
+            // corner buttons would otherwise ALSO raycast-place a block
+            // underneath them. Only the UI's own handlers should respond to
+            // those taps.
+            if (IsPointerOverUI())
+                return;
+
+            PerformPlace();
         }
 
-        // Public so the on-screen mobile Place button can call it directly
-        // without needing to fake an InputAction.CallbackContext.
+        // Public so world-tap placement (touch) and mouse-click placement
+        // (desktop) share the exact same logic.
         public void PerformPlace()
         {
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
@@ -184,9 +194,13 @@ namespace Sandbox.Building
 
         private void OnRotate(InputAction.CallbackContext context)
         {
-            if (!context.performed)
-                return;
+            if (context.performed)
+                PerformRotate();
+        }
 
+        // Public so the on-screen mobile Rotate button can call it directly.
+        public void PerformRotate()
+        {
             rotationSteps = (rotationSteps + 1) % 4;
         }
 
@@ -275,18 +289,27 @@ namespace Sandbox.Building
 
         private static Vector2 GetPointerScreenPosition()
         {
-            // On touch devices there's no meaningful cursor position to aim
-            // from -- place/remove aim from a fixed screen-center crosshair
-            // instead, driven by the look joystick rotating the camera.
-            // Shares MobileControlsVisibility's device check rather than
-            // querying Touchscreen.current independently -- that flagged
-            // some non-touch desktop browsers as touch-capable too, which
-            // broke mouse aiming there (blocks placed at screen center /
-            // the avatar instead of under the cursor).
-            if (MobileControlsVisibility.IsTouchDevice)
-                return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+            // Tap-to-place: aim directly from wherever the finger actually
+            // is, same as mouse position does for desktop, rather than a
+            // fixed screen-center crosshair.
+            if (Touchscreen.current != null && Touchscreen.current.primaryTouch.isInProgress)
+                return Touchscreen.current.primaryTouch.position.ReadValue();
 
             return Mouse.current != null ? Mouse.current.position.ReadValue() : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+        }
+
+        // A tap that starts on a UI element (joystick, corner buttons)
+        // should only drive that element -- not also raycast-place a block
+        // underneath it.
+        private static bool IsPointerOverUI()
+        {
+            if (EventSystem.current == null)
+                return false;
+
+            if (Touchscreen.current != null && Touchscreen.current.primaryTouch.isInProgress)
+                return EventSystem.current.IsPointerOverGameObject(Touchscreen.current.primaryTouch.touchId.ReadValue());
+
+            return EventSystem.current.IsPointerOverGameObject();
         }
 
         private static void SetGhostAppearance(GameObject ghost)
