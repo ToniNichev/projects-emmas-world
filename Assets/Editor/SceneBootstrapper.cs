@@ -587,19 +587,73 @@ namespace Sandbox.EditorTools
                 CourseStartZ + radius * Mathf.Sin(finishAngle));
             CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], finishPos, new Vector3(3.5f, 1f, 3.5f), finishColor);
 
+            // Fence ring at a radius clear of the platforms but inside the
+            // no-build zone, so the visible boundary and the actual
+            // build-lock boundary line up exactly -- a box zone (the
+            // original design) wouldn't match a circular fence in every
+            // direction (its corners reach further out than its
+            // straight edges).
+            const float fenceRadius = radius + 2.2f;
+            const float zoneRadius = radius + 3f;
             float totalHeight = finishHeight - baseY;
+            BuildAttractionFence(courseRoot.transform, blockPrefabs[0], new Vector3(CourseStartX, baseY, CourseStartZ), fenceRadius);
+
             Vector3 zoneCenter = new Vector3(CourseStartX, baseY + totalHeight / 2f + 1f, CourseStartZ);
-            Vector3 zoneSize = new Vector3((radius + 3f) * 2f, totalHeight + 6f, (radius + 3f) * 2f);
             GameObject zoneGo = new GameObject("ObstacleCourseNoBuildZone");
             zoneGo.transform.SetParent(courseRoot.transform, false);
             zoneGo.transform.position = zoneCenter;
-            BoxCollider zoneCollider = zoneGo.AddComponent<BoxCollider>();
+            CapsuleCollider zoneCollider = zoneGo.AddComponent<CapsuleCollider>();
             zoneCollider.isTrigger = true;
-            zoneCollider.size = zoneSize;
+            zoneCollider.direction = 1; // Y-axis
+            zoneCollider.radius = zoneRadius;
+            zoneCollider.height = totalHeight + 8f;
             zoneGo.AddComponent<NoBuildZone>();
         }
 
-        private static void CreateCoursePlatform(Transform parent, GameObject prefab, Vector3 position, Vector3 scale, Color color)
+        // A ring of alternating red/white posts with connecting rails around
+        // a fixed center point -- reads as an amusement-park attraction
+        // railing. Purely decorative (no colliders): it marks the boundary,
+        // it doesn't block movement, since the actual build-lock is handled
+        // by ObstacleCourseNoBuildZone's trigger volume.
+        private static void BuildAttractionFence(Transform parent, GameObject cubePrefab, Vector3 groundCenter, float fenceRadius)
+        {
+            const int postCount = 16;
+            const float postHeight = 1.1f;
+            const float postThickness = 0.18f;
+            const float railHeight = 0.7f;
+            const float railThickness = 0.1f;
+            Color postColorA = Color.white;
+            Color postColorB = new Color(0.85f, 0.15f, 0.15f);
+
+            var postPositions = new Vector3[postCount];
+            for (int i = 0; i < postCount; i++)
+            {
+                float angle = i * (360f / postCount) * Mathf.Deg2Rad;
+                postPositions[i] = groundCenter + new Vector3(Mathf.Cos(angle) * fenceRadius, 0f, Mathf.Sin(angle) * fenceRadius);
+
+                GameObject post = CreateCoursePlatform(parent, cubePrefab, postPositions[i] + new Vector3(0f, postHeight / 2f, 0f),
+                    new Vector3(postThickness, postHeight, postThickness), i % 2 == 0 ? postColorA : postColorB);
+                Object.DestroyImmediate(post.GetComponent<Collider>());
+            }
+
+            for (int i = 0; i < postCount; i++)
+            {
+                Vector3 a = postPositions[i];
+                Vector3 b = postPositions[(i + 1) % postCount];
+                Vector3 direction = b - a;
+                float length = direction.magnitude;
+                Vector3 midpoint = (a + b) / 2f + new Vector3(0f, railHeight, 0f);
+
+                GameObject rail = Object.Instantiate(cubePrefab, midpoint, Quaternion.FromToRotation(Vector3.right, direction.normalized), parent);
+                rail.transform.localScale = new Vector3(length * 1.05f, railThickness, railThickness);
+                Renderer railRenderer = rail.GetComponent<Renderer>();
+                if (railRenderer != null)
+                    railRenderer.material.color = Color.white;
+                Object.DestroyImmediate(rail.GetComponent<Collider>());
+            }
+        }
+
+        private static GameObject CreateCoursePlatform(Transform parent, GameObject prefab, Vector3 position, Vector3 scale, Color color)
         {
             GameObject platform = Object.Instantiate(prefab, position, Quaternion.identity, parent);
             platform.transform.localScale = scale;
@@ -607,6 +661,8 @@ namespace Sandbox.EditorTools
             Renderer renderer = platform.GetComponent<Renderer>();
             if (renderer != null)
                 renderer.material.color = color;
+
+            return platform;
         }
 
         private static GameObject CreateRockPrefab(Material material)
