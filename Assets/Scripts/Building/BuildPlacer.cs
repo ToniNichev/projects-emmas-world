@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
@@ -117,7 +118,7 @@ namespace Sandbox.Building
             // corner buttons would otherwise ALSO raycast-place a block
             // underneath them. Only the UI's own handlers should respond to
             // those taps.
-            if (IsPointerOverUI())
+            if (IsScreenPointOverUI(GetPointerScreenPosition()))
                 return;
 
             PerformPlace();
@@ -301,15 +302,24 @@ namespace Sandbox.Building
         // A tap that starts on a UI element (joystick, corner buttons)
         // should only drive that element -- not also raycast-place a block
         // underneath it.
-        private static bool IsPointerOverUI()
+        // EventSystem.IsPointerOverGameObject() reflects the UI system's
+        // state as of its own last Update() pass. Input System action
+        // callbacks (like OnPlace) fire during input event processing,
+        // which happens BEFORE EventSystem.Update() runs that same frame --
+        // so on the exact frame a tap begins, the UI hasn't caught up yet
+        // and IsPointerOverGameObject incorrectly reports "not over UI"
+        // even for a tap squarely on a joystick/button. RaycastAll performs
+        // a fresh raycast synchronously right now instead, avoiding that
+        // one-frame staleness entirely.
+        private static bool IsScreenPointOverUI(Vector2 screenPosition)
         {
             if (EventSystem.current == null)
                 return false;
 
-            if (Touchscreen.current != null && Touchscreen.current.primaryTouch.isInProgress)
-                return EventSystem.current.IsPointerOverGameObject(Touchscreen.current.primaryTouch.touchId.ReadValue());
-
-            return EventSystem.current.IsPointerOverGameObject();
+            var pointerData = new PointerEventData(EventSystem.current) { position = screenPosition };
+            var results = new List<RaycastResult>();
+            EventSystem.current.RaycastAll(pointerData, results);
+            return results.Count > 0;
         }
 
         private static void SetGhostAppearance(GameObject ghost)
