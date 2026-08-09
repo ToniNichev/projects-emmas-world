@@ -277,6 +277,20 @@ namespace Sandbox.Multiplayer
             networkedBlocks.Remove(data.id);
         }
 
+        // Admin-triggered full clear (see the web app's "Reset World"
+        // button). Broadcast to everyone in the room, including whoever
+        // clicked it, so there's one code path for "make my own view match
+        // the now-empty world" rather than a separate local-only case.
+        public void OnWorldReset(string json)
+        {
+            foreach (GameObject block in networkedBlocks.Values)
+            {
+                if (block != null)
+                    Destroy(block);
+            }
+            networkedBlocks.Clear();
+        }
+
         // ----- Helpers -----
 
         // Spawns at the correct spot immediately rather than at the default

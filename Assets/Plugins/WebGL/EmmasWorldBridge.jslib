@@ -34,6 +34,9 @@ mergeInto(LibraryManager.library, {
     socket.on('emmasworld:block_removed', function (data) {
       SendMessage('MultiplayerManager', 'OnBlockRemoved', JSON.stringify(data));
     });
+    socket.on('emmasworld:world_reset', function () {
+      SendMessage('MultiplayerManager', 'OnWorldReset', '{}');
+    });
   },
 
   EmmasWorld_JoinWorld: function () {
