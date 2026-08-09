@@ -43,8 +43,12 @@ namespace Sandbox.EditorTools
 
         // Obstacle course placement -- off to another side from both spawn
         // and the lake, away from the tree/rock scatter (see ScatterProps).
-        private const float CourseStartX = -35f;
-        private const float CourseStartZ = 25f;
+        // Close enough to spawn to be visible just by looking around,
+        // rather than requiring blind exploration with no compass/map to
+        // guide direction -- the previous spot (43 units away) got players
+        // lost in real testing.
+        private const float CourseStartX = 25f;
+        private const float CourseStartZ = 0f;
         private const float CourseExclusionRadius = 20f; // generous circle covering the whole course footprint
 
         [MenuItem("Sandbox/Build Scaffolded Scene")]
