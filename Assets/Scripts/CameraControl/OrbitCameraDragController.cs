@@ -1,5 +1,7 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.Controls;
 using Unity.Cinemachine;
 using Sandbox.UI;
 
@@ -20,6 +22,10 @@ namespace Sandbox.CameraControl
         // making the joystick itself bigger (more finger travel needed to
         // reach full deflection in the first place).
         [SerializeField] private float lookJoystickSpeed = 45f;
+        // Radius units per pixel of pinch-distance change. Like the original
+        // zoom multipliers, this is an initial guess -- likely needs a real
+        // device tuning pass.
+        [SerializeField] private float pinchZoomSpeed = 0.02f;
 
         // A single scroll-wheel notch can report a large raw delta in one
         // frame (especially discrete mouse wheels vs. trackpads), which used
@@ -27,6 +33,11 @@ namespace Sandbox.CameraControl
         // Instead, input only moves this target, and Radius eases toward it
         // every frame regardless of how big the input spike was.
         private float targetRadius;
+
+        // Null whenever fewer than two non-UI fingers are down, so a fresh
+        // pinch gesture doesn't compute a bogus delta against a stale
+        // distance from a previous, unrelated gesture.
+        private float? previousPinchDistance;
 
         private void Awake()
         {
@@ -44,6 +55,7 @@ namespace Sandbox.CameraControl
 
             UpdateOrbit();
             UpdateZoom();
+            UpdatePinchZoom();
         }
 
         private void UpdateOrbit()
@@ -102,6 +114,57 @@ namespace Sandbox.CameraControl
             // smooths things out, independent of how big a single scroll
             // event's raw delta was.
             orbitalFollow.Radius = Mathf.Lerp(orbitalFollow.Radius, targetRadius, 1f - Mathf.Exp(-zoomSmoothSpeed * Time.deltaTime));
+        }
+
+        // Two-finger pinch: spreading fingers apart zooms in (shrinks
+        // Radius), pinching together zooms out, matching the universal
+        // photo/map pinch convention. Touches over UI (joysticks/corner
+        // buttons) don't count, so dragging the look joystick with one
+        // finger doesn't accidentally start a pinch with a second.
+        private void UpdatePinchZoom()
+        {
+            if (Touchscreen.current == null)
+            {
+                previousPinchDistance = null;
+                return;
+            }
+
+            TouchControl first = null;
+            TouchControl second = null;
+            foreach (TouchControl touch in Touchscreen.current.touches)
+            {
+                if (!touch.isInProgress || IsTouchOverUI(touch))
+                    continue;
+
+                if (first == null)
+                    first = touch;
+                else if (second == null)
+                {
+                    second = touch;
+                    break;
+                }
+            }
+
+            if (first == null || second == null)
+            {
+                previousPinchDistance = null;
+                return;
+            }
+
+            float distance = Vector2.Distance(first.position.ReadValue(), second.position.ReadValue());
+
+            if (previousPinchDistance.HasValue)
+            {
+                float delta = distance - previousPinchDistance.Value;
+                targetRadius = Mathf.Clamp(targetRadius - delta * pinchZoomSpeed, minRadius, maxRadius);
+            }
+
+            previousPinchDistance = distance;
+        }
+
+        private static bool IsTouchOverUI(TouchControl touch)
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.touchId.ReadValue());
         }
 
         private static float ApplyRange(float value, Vector2 range, bool wrap)
