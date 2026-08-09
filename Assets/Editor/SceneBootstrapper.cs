@@ -41,6 +41,12 @@ namespace Sandbox.EditorTools
         private const float LakeShoreBlend = 6f;
         private const float LakeSurfaceY = 0.45f;
 
+        // Obstacle course placement -- off to another side from both spawn
+        // and the lake, away from the tree/rock scatter (see ScatterProps).
+        private const float CourseStartX = -35f;
+        private const float CourseStartZ = 25f;
+        private const float CourseExclusionRadius = 20f; // generous circle covering the whole course footprint
+
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
         {
@@ -91,6 +97,8 @@ namespace Sandbox.EditorTools
 
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
+
+            BuildObstacleCourse(blockPrefabs, terrain);
 
             GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial);
 
@@ -525,6 +533,70 @@ namespace Sandbox.EditorTools
             water.AddComponent<WaterAnimator>();
         }
 
+        // A simple jump-platform course ending in a distinct gold finish
+        // platform, wrapped in a no-build trigger zone (see NoBuildZone) so
+        // players can't bridge past a hard jump with their own blocks.
+        // Course pieces intentionally don't get a PlacedBlock component --
+        // they're permanent world geometry, same as trees/rocks, not
+        // player-removable building blocks.
+        private static void BuildObstacleCourse(GameObject[] blockPrefabs, Terrain terrain)
+        {
+            GameObject courseRoot = new GameObject("ObstacleCourse");
+
+            float startY = terrain.SampleHeight(new Vector3(CourseStartX, 0f, CourseStartZ));
+            Vector3 cursor = new Vector3(CourseStartX, startY + 0.5f, CourseStartZ);
+            Color courseColor = new Color(0.9f, 0.6f, 0.2f);
+            Color startFinishColor = new Color(0.3f, 0.55f, 0.95f);
+
+            // Big, flat, safe to stand on while lining up the first jump.
+            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], cursor, new Vector3(4f, 1f, 4f), startFinishColor);
+
+            // Offset from the previous platform, which shape to use (0=Cube,
+            // 1=Wedge, 2=Cylinder, 3=Ball), and the platform's own scale.
+            // Gaps widen gradually across the course.
+            var steps = new (Vector3 offset, int shape, Vector3 scale)[]
+            {
+                (new Vector3(2.2f, 0f, 0f), 0, Vector3.one),
+                (new Vector3(2.4f, 0.3f, 0.6f), 1, Vector3.one),
+                (new Vector3(2.6f, 0.2f, -0.6f), 0, Vector3.one),
+                (new Vector3(2.8f, -0.3f, 0.6f), 2, Vector3.one),
+                (new Vector3(3.0f, 0.4f, -0.6f), 0, Vector3.one),
+                (new Vector3(3.0f, 0f, 0.6f), 3, Vector3.one),
+                (new Vector3(3.2f, 0.3f, -0.6f), 0, Vector3.one),
+            };
+
+            foreach (var step in steps)
+            {
+                cursor += step.offset;
+                CreateCoursePlatform(courseRoot.transform, blockPrefabs[step.shape], cursor, step.scale, courseColor);
+            }
+
+            // Finish platform: big, flat, and a different color from the
+            // rest of the course -- unmistakably the end.
+            cursor += new Vector3(2.6f, 0.3f, 0f);
+            CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], cursor, new Vector3(4f, 1f, 4f), new Color(1f, 0.84f, 0.2f));
+
+            Vector3 zoneCenter = new Vector3(CourseStartX + (cursor.x - CourseStartX) / 2f, startY + 4f, CourseStartZ);
+            Vector3 zoneSize = new Vector3(Mathf.Abs(cursor.x - CourseStartX) + 8f, 14f, 10f);
+            GameObject zoneGo = new GameObject("ObstacleCourseNoBuildZone");
+            zoneGo.transform.SetParent(courseRoot.transform, false);
+            zoneGo.transform.position = zoneCenter;
+            BoxCollider zoneCollider = zoneGo.AddComponent<BoxCollider>();
+            zoneCollider.isTrigger = true;
+            zoneCollider.size = zoneSize;
+            zoneGo.AddComponent<NoBuildZone>();
+        }
+
+        private static void CreateCoursePlatform(Transform parent, GameObject prefab, Vector3 position, Vector3 scale, Color color)
+        {
+            GameObject platform = Object.Instantiate(prefab, position, Quaternion.identity, parent);
+            platform.transform.localScale = scale;
+
+            Renderer renderer = platform.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+        }
+
         private static GameObject CreateRockPrefab(Material material)
         {
             GameObject root = new GameObject("Rock");
@@ -618,6 +690,7 @@ namespace Sandbox.EditorTools
         {
             Vector2 lakeCenter = new Vector2(LakeCenterX, LakeCenterZ);
             float lakeExclusionRadius = LakeRadius + LakeShoreBlend + 2f; // keep props off the shore, not just out of the water
+            Vector2 courseCenter = new Vector2(CourseStartX, CourseStartZ);
 
             for (int i = 0; i < count; i++)
             {
@@ -626,7 +699,9 @@ namespace Sandbox.EditorTools
                 {
                     x = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
                     z = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
-                } while (new Vector2(x, z).magnitude < clearRadius || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius);
+                } while (new Vector2(x, z).magnitude < clearRadius
+                    || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius
+                    || Vector2.Distance(new Vector2(x, z), courseCenter) < CourseExclusionRadius);
 
                 float y = terrain.SampleHeight(new Vector3(x, 0f, z));
                 Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);

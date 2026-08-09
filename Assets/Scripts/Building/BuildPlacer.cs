@@ -37,6 +37,11 @@ namespace Sandbox.Building
         // since a block isn't "real" here until it round-trips.
         private GameObject lastLocallyPlacedBlock;
 
+        // Set by NoBuildZone while the player is standing inside one (e.g.
+        // the obstacle course) -- keeps the course's layout honest instead
+        // of players bridging past a hard jump.
+        public bool BuildingAllowed { get; set; } = true;
+
         public int SelectedShapeIndex => selectedShapeIndex;
 
         private GameObject SelectedPrefab => blockPrefabs[selectedShapeIndex];
@@ -96,6 +101,12 @@ namespace Sandbox.Building
             if (previewGhost == null)
                 return;
 
+            if (!BuildingAllowed)
+            {
+                previewGhost.SetActive(false);
+                return;
+            }
+
             if (TryGetPlacementPoint(out Vector3 spawnPosition))
             {
                 previewGhost.SetActive(true);
@@ -128,6 +139,9 @@ namespace Sandbox.Building
         // (desktop) share the exact same logic.
         public void PerformPlace()
         {
+            if (!BuildingAllowed)
+                return;
+
             if (!TryGetPlacementPoint(out Vector3 spawnPosition))
                 return;
 
@@ -227,6 +241,9 @@ namespace Sandbox.Building
         // Public so the on-screen mobile Remove button can call it directly.
         public void PerformRemove()
         {
+            if (!BuildingAllowed)
+                return;
+
             if (Physics.Raycast(placementCamera.ScreenPointToRay(GetPointerScreenPosition()), out RaycastHit hit, maxPlaceDistance, placementMask))
             {
                 PlacedBlock block = hit.collider.GetComponent<PlacedBlock>();
