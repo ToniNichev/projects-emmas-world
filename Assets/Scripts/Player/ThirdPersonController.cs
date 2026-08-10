@@ -142,7 +142,10 @@ namespace Sandbox.Player
         {
             Vector2 combinedInput = CombinedMoveInput;
             Vector3 inputDir = new Vector3(combinedInput.x, 0f, combinedInput.y);
-            if (inputDir.sqrMagnitude < 0.0001f)
+            // CombinedMoveInput is already clamped to magnitude 1, so this is
+            // how far the stick/keys are actually pushed, 0..1.
+            float inputMagnitude = inputDir.magnitude;
+            if (inputMagnitude < 0.0001f)
             {
                 controller.Move(verticalVelocity * Time.deltaTime);
                 return;
@@ -155,8 +158,14 @@ namespace Sandbox.Player
             forward.Normalize();
             right.Normalize();
 
+            // .normalized here is for DIRECTION only -- speed is scaled by
+            // inputMagnitude separately below. Without that separation, any
+            // non-zero input (even a stray value from a finger not landing
+            // pixel-perfect on the joystick's center) snapped straight to
+            // full speed, since normalizing the direction also discarded how
+            // far the stick was actually pushed.
             Vector3 moveDir = (forward * inputDir.z + right * inputDir.x).normalized;
-            float speed = sprintHeld ? sprintSpeed : moveSpeed;
+            float speed = (sprintHeld ? sprintSpeed : moveSpeed) * inputMagnitude;
 
             Quaternion targetRotation = Quaternion.LookRotation(moveDir, Vector3.up);
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);

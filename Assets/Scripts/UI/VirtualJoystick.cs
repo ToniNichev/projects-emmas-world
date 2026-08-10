@@ -13,6 +13,11 @@ namespace Sandbox.UI
         // to reach full deflection (Value magnitude 1), which is what
         // actually reduces sensitivity -- not just the visual size.
         [SerializeField] private float handleRange = 68f;
+        // Fraction of handleRange treated as "still centered" -- a real
+        // finger tap rarely lands on the exact center pixel, and without
+        // this a few pixels of stray offset used to read as a small but
+        // fully normalized movement command (see ThirdPersonController).
+        [SerializeField] private float deadzone = 0.08f;
 
         public Vector2 Value { get; private set; }
 
@@ -25,7 +30,9 @@ namespace Sandbox.UI
 
             Vector2 clamped = Vector2.ClampMagnitude(localPoint, handleRange);
             handle.anchoredPosition = clamped;
-            Value = clamped / handleRange;
+
+            Vector2 rawValue = clamped / handleRange;
+            Value = rawValue.magnitude < deadzone ? Vector2.zero : rawValue;
         }
 
         public void OnPointerUp(PointerEventData eventData)
