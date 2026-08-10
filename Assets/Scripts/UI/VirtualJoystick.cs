@@ -12,12 +12,14 @@ namespace Sandbox.UI
         // A bigger drag radius means more physical finger travel is needed
         // to reach full deflection (Value magnitude 1), which is what
         // actually reduces sensitivity -- not just the visual size.
-        [SerializeField] private float handleRange = 68f;
+        [SerializeField] private float handleRange = 80f;
         // Fraction of handleRange treated as "still centered" -- a real
         // finger tap rarely lands on the exact center pixel, and without
         // this a few pixels of stray offset used to read as a small but
         // fully normalized movement command (see ThirdPersonController).
-        [SerializeField] private float deadzone = 0.08f;
+        // 0.08 still wasn't forgiving enough in real testing; more than
+        // doubled.
+        [SerializeField] private float deadzone = 0.2f;
 
         public Vector2 Value { get; private set; }
 

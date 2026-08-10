@@ -1134,8 +1134,11 @@ namespace Sandbox.EditorTools
             // anchoredPosition is now the circle's center (see CreateJoystick),
             // so these are +90 further out on each axis than the old
             // corner-pivot values, keeping the same on-screen layout.
-            VirtualJoystick moveJoystick = CreateJoystick(canvasGo.transform, "MoveJoystick", new Vector2(0f, 0f), new Vector2(220f, 220f), ringSprite, knobSprite);
-            Vector2 lookJoystickPos = new Vector2(-220f, 220f);
+            // ~18% bigger than the previous size (still not precise enough
+            // per real testing -- paired with a wider VirtualJoystick
+            // deadzone this time instead of relying on size alone).
+            VirtualJoystick moveJoystick = CreateJoystick(canvasGo.transform, "MoveJoystick", new Vector2(0f, 0f), new Vector2(260f, 260f), ringSprite, knobSprite);
+            Vector2 lookJoystickPos = new Vector2(-260f, 260f);
             VirtualJoystick lookJoystick = CreateJoystick(canvasGo.transform, "LookJoystick", new Vector2(1f, 0f), lookJoystickPos, ringSprite, knobSprite);
 
             SetPrivateField(playerController, "moveJoystick", moveJoystick);
@@ -1147,10 +1150,10 @@ namespace Sandbox.EditorTools
             // concave bite taken out following the circle, and a rounded
             // (not sharp) outer tip. One sprite, mirrored per corner via
             // scale flips instead of 4 separate textures.
-            const float cornerExtent = 150f; // reaches well past the joystick's 110 radius
-            const float cornerJoystickRadius = 110f; // matches the joystick ring exactly, so the cutout lines up
-            const float cornerRound = 30f;
-            const float cornerGap = 8f; // small gap from the joystick ring and between adjacent corner pieces
+            const float cornerExtent = 177f; // reaches well past the joystick's 130 radius
+            const float cornerJoystickRadius = 130f; // matches the joystick ring exactly, so the cutout lines up
+            const float cornerRound = 35f;
+            const float cornerGap = 9f; // small gap from the joystick ring and between adjacent corner pieces
             Sprite cornerSprite = CreateCornerWedgeSprite("ActionCorner", new Color(1f, 1f, 1f, 0.4f), cornerJoystickRadius, cornerRound, cornerGap);
 
             // Small icons instead of text -- at this button size text was
@@ -1181,8 +1184,8 @@ namespace Sandbox.EditorTools
 
         private static VirtualJoystick CreateJoystick(Transform parent, string name, Vector2 cornerAnchor, Vector2 anchoredPosition, Sprite ringSprite, Sprite knobSprite)
         {
-            const float backgroundSize = 220f;
-            const float knobSize = 95f;
+            const float backgroundSize = 260f;
+            const float knobSize = 112f;
 
             GameObject bgGo = new GameObject(name);
             bgGo.transform.SetParent(parent, false);
@@ -1304,11 +1307,12 @@ namespace Sandbox.EditorTools
             iconRect.anchorMin = outerCorner;
             iconRect.anchorMax = outerCorner;
             iconRect.pivot = new Vector2(0.5f, 0.5f);
-            iconRect.sizeDelta = new Vector2(46f, 46f);
+            iconRect.sizeDelta = new Vector2(54f, 54f);
             // A smaller inset pulls back less from the outer corner, i.e.
             // sits the icon further from the joystick/cutout edge -- 54 put
             // icons too close to the concave inner border in real testing.
-            const float inset = 38f;
+            // Scaled up along with cornerExtent (150->177).
+            const float inset = 45f;
             iconRect.anchoredPosition = new Vector2(flipX ? inset : -inset, flipY ? inset : -inset);
 
             Image iconImage = iconGo.AddComponent<Image>();
