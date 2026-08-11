@@ -1150,10 +1150,10 @@ namespace Sandbox.EditorTools
             // concave bite taken out following the circle, and a rounded
             // (not sharp) outer tip. One sprite, mirrored per corner via
             // scale flips instead of 4 separate textures.
-            const float cornerExtent = 177f; // reaches well past the joystick's 130 radius
+            const float cornerExtent = 209f; // reaches well past the joystick's 130 radius
             const float cornerJoystickRadius = 130f; // matches the joystick ring exactly, so the cutout lines up
-            const float cornerRound = 35f;
-            const float cornerGap = 9f; // small gap from the joystick ring and between adjacent corner pieces
+            const float cornerRound = 41f;
+            const float cornerGap = 11f; // small gap from the joystick ring and between adjacent corner pieces
             Sprite cornerSprite = CreateCornerWedgeSprite("ActionCorner", new Color(1f, 1f, 1f, 0.4f), cornerJoystickRadius, cornerRound, cornerGap);
 
             // Small icons instead of text -- at this button size text was
@@ -1307,12 +1307,12 @@ namespace Sandbox.EditorTools
             iconRect.anchorMin = outerCorner;
             iconRect.anchorMax = outerCorner;
             iconRect.pivot = new Vector2(0.5f, 0.5f);
-            iconRect.sizeDelta = new Vector2(54f, 54f);
+            iconRect.sizeDelta = new Vector2(64f, 64f);
             // A smaller inset pulls back less from the outer corner, i.e.
             // sits the icon further from the joystick/cutout edge -- 54 put
             // icons too close to the concave inner border in real testing.
-            // Scaled up along with cornerExtent (150->177).
-            const float inset = 45f;
+            // Scaled up along with cornerExtent (177->209).
+            const float inset = 53f;
             iconRect.anchoredPosition = new Vector2(flipX ? inset : -inset, flipY ? inset : -inset);
 
             Image iconImage = iconGo.AddComponent<Image>();
