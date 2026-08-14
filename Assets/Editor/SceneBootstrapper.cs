@@ -73,6 +73,12 @@ namespace Sandbox.EditorTools
         // view once you've climbed it.
         private const float HillPeakClearRadius = 8f;
 
+        // Elder tent placement -- its own direction from spawn, clear of
+        // every other point of interest.
+        private const float ElderTentX = 10f;
+        private const float ElderTentZ = 35f;
+        private const float ElderTentExclusionRadius = 8f;
+
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
         {
@@ -115,6 +121,14 @@ namespace Sandbox.EditorTools
             GameObject rockPrefab = CreateRockPrefab(rockMaterial);
             GameObject treePrefab = CreateTreePrefab(trunkMaterial, leafMaterial);
             ScatterEnvironmentProps(terrain, treePrefab, rockPrefab);
+
+            BuildSkybox("AlpsSkybox.jpg");
+
+            Material tentMaterial = CreateMaterial("TentCanvas", new Color(0.75f, 0.62f, 0.4f));
+            ApplyNoiseTexture(tentMaterial, "TentCanvasNoise", new Color(0.7f, 0.56f, 0.36f), new Color(0.82f, 0.68f, 0.46f), 0.3f, 0.6f);
+            Material robeMaterial = CreateMaterial("ElderRobe", new Color(0.35f, 0.28f, 0.42f));
+            ApplyNoiseTexture(robeMaterial, "ElderRobeNoise", new Color(0.3f, 0.24f, 0.38f), new Color(0.4f, 0.32f, 0.46f), 0.3f, 0.6f);
+            BuildElderTent(terrain, tentMaterial, robeMaterial, playerHeadMaterial);
 
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
@@ -559,18 +573,13 @@ namespace Sandbox.EditorTools
             water.AddComponent<WaterAnimator>();
             water.AddComponent<WaterWave>();
 
-            CreateLakeSplashes();
+            ParticleSystem splashSystem = CreateLakeSplashes();
+            CreateLakeSplashTrigger(splashSystem);
         }
 
         // Radial grid disc (concentric rings of vertices around a center
         // point) instead of a simple fan -- gives WaterWave enough interior
-        // vertices to displace for a real wave pattern. Every triangle is
-        // added in both winding orders so the surface is guaranteed visible
-        // from above regardless of which order is "front-facing" -- Standard
-        // shader hardcodes backface culling with no material property to
-        // override it (the same issue hit with the foliage cards), so
-        // getting winding provably right here matters more than the modest
-        // extra triangle cost.
+        // vertices to displace for a real wave pattern.
         private static Mesh CreateWaterMesh(float radius, int rings, int segments)
         {
             var vertices = new System.Collections.Generic.List<Vector3>();
@@ -580,7 +589,6 @@ namespace Sandbox.EditorTools
             void AddTriangle(int a, int b, int c)
             {
                 triangles.Add(a); triangles.Add(b); triangles.Add(c);
-                triangles.Add(a); triangles.Add(c); triangles.Add(b);
             }
 
             vertices.Add(Vector3.zero);
@@ -599,8 +607,18 @@ namespace Sandbox.EditorTools
                 }
             }
 
+            // Single winding, verified by hand (Cross(p1-p0, p2-p0) with
+            // these three points comes out +Y) rather than the previous
+            // both-windings approach: duplicating every triangle in reverse
+            // made RecalculateNormals average an up-facing and a
+            // down-facing normal at every shared vertex, which cancelled
+            // toward zero/garbage and rendered as a dark, badly-lit
+            // surface. The lake is only ever seen from above in this game,
+            // so single-sided, correctly-wound geometry is both simpler and
+            // actually correct here (ordinary lighting instead), unlike the
+            // foliage cards where the player really does need both sides.
             for (int seg = 0; seg < segments; seg++)
-                AddTriangle(0, 1 + seg, 1 + (seg + 1) % segments);
+                AddTriangle(0, 1 + (seg + 1) % segments, 1 + seg);
 
             for (int ring = 0; ring < rings - 1; ring++)
             {
@@ -612,8 +630,8 @@ namespace Sandbox.EditorTools
                     int b = ringStart + (seg + 1) % segments;
                     int c = nextRingStart + seg;
                     int d = nextRingStart + (seg + 1) % segments;
-                    AddTriangle(a, c, d);
-                    AddTriangle(a, d, b);
+                    AddTriangle(a, d, c);
+                    AddTriangle(a, b, d);
                 }
             }
 
@@ -632,7 +650,7 @@ namespace Sandbox.EditorTools
         // plain Billboard) keeps each ripple lying flat on the water no
         // matter the camera angle, like a decal rather than a sprite
         // facing the viewer.
-        private static void CreateLakeSplashes()
+        private static ParticleSystem CreateLakeSplashes()
         {
             Texture2D glowTexture = CreateGlowTexture("SplashGlow");
             Material splashMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Alpha Blended")) { name = "SplashParticle" };
@@ -681,6 +699,28 @@ namespace Sandbox.EditorTools
             ParticleSystemRenderer renderer = splashGo.GetComponent<ParticleSystemRenderer>();
             renderer.material = splashMaterial;
             renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
+
+            return splashes;
+        }
+
+        // Invisible trigger volume covering the water -- CapsuleCollider
+        // with a Y-axis direction gives circular coverage matching the
+        // lake's footprint, same trick ObstacleCourseNoBuildZone uses for
+        // its own circular boundary.
+        private static void CreateLakeSplashTrigger(ParticleSystem splashSystem)
+        {
+            GameObject triggerGo = new GameObject("LakeSplashTrigger");
+            triggerGo.transform.position = new Vector3(LakeCenterX, LakeSurfaceY, LakeCenterZ);
+
+            CapsuleCollider collider = triggerGo.AddComponent<CapsuleCollider>();
+            collider.isTrigger = true;
+            collider.direction = 1; // Y-axis
+            collider.radius = LakeRadius * 0.95f;
+            collider.height = 3f; // generous enough to catch entry from a jump, not just a slow walk-in
+
+            LakeSplashTrigger splashTrigger = triggerGo.AddComponent<LakeSplashTrigger>();
+            SetPrivateField(splashTrigger, "splashSystem", splashSystem);
+            SetPrivateField(splashTrigger, "surfaceY", LakeSurfaceY);
         }
 
         // A simple jump-platform course ending in a distinct gold finish
@@ -1213,6 +1253,43 @@ namespace Sandbox.EditorTools
             log.GetComponent<Renderer>().sharedMaterial = material;
         }
 
+        // Same "base on a ring, tip at a shared point overhead" convergence
+        // as CreateLeaningLog, but a flat board instead of a round pole, with
+        // its orientation fully controlled (not just FromToRotation's
+        // arbitrary roll) so its width actually runs tangentially around the
+        // ring -- that's what lets neighboring panels overlap into a solid
+        // wall instead of leaving round-pole-shaped gaps between them.
+        // Keeps its default BoxCollider, unlike most decorative props here:
+        // this is a wall, it should actually block the player outside the
+        // doorway gap.
+        private static void CreateTentPanel(Transform parent, Material material, string name, float angleDegrees, float baseRadius, float length, float width, float thickness)
+        {
+            GameObject panel = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            panel.name = name;
+            panel.transform.SetParent(parent, false);
+
+            float rad = angleDegrees * Mathf.Deg2Rad;
+            Vector3 radialDir = new Vector3(Mathf.Cos(rad), 0f, Mathf.Sin(rad));
+            Vector3 tangentDir = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            Vector3 basePoint = radialDir * baseRadius + new Vector3(0f, 0.05f, 0f);
+            Vector3 tipPoint = new Vector3(0f, length * 0.85f, 0f);
+            Vector3 leanDir = (tipPoint - basePoint).normalized;
+
+            panel.transform.localPosition = (basePoint + tipPoint) / 2f;
+            // leanDir lies entirely in the {radialDir, up} plane (basePoint
+            // and tipPoint are both on that plane), so it has zero
+            // component along tangentDir -- the two are already exactly
+            // perpendicular, meaning LookRotation needs no orthogonalizing
+            // adjustment: local Z lands exactly on tangentDir (width axis)
+            // and local Y exactly on leanDir (length axis, the actual lean).
+            panel.transform.localRotation = Quaternion.LookRotation(tangentDir, leanDir);
+            panel.transform.localScale = new Vector3(thickness, Vector3.Distance(basePoint, tipPoint), width);
+
+            Renderer renderer = panel.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.sharedMaterial = material;
+        }
+
         // Squashed flat rather than stretched -- a bed of embers glowing
         // among the logs, not a flame shape (the particles above handle
         // that). No collider since it's purely visual.
@@ -1283,6 +1360,162 @@ namespace Sandbox.EditorTools
             chunk.transform.localScale = scale;
             chunk.transform.localRotation = rotation;
             chunk.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
+        // A real photographic panorama (see Assets/Textures/Imported/README.txt)
+        // on a Skybox/Panoramic material -- infinitely distant and
+        // genuinely photorealistic, unlike any amount of foreground
+        // geometry could be. Replaced an earlier cube-chunk mountain range
+        // that read as clearly blocky up close.
+        private static void BuildSkybox(string importedFileName)
+        {
+            string path = $"{TexturesFolder}/Imported/{importedFileName}";
+            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer != null)
+            {
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.mipmapEnabled = true;
+                importer.maxTextureSize = 4096;
+                importer.SaveAndReimport();
+            }
+
+            Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (texture == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing imported skybox texture at {path}");
+                return;
+            }
+
+            Material skyboxMaterial = new Material(Shader.Find("Skybox/Panoramic")) { name = "Skybox" };
+            skyboxMaterial.SetTexture("_MainTex", texture);
+            skyboxMaterial.SetFloat("_Exposure", 1f);
+            Directory.CreateDirectory(MaterialsFolder);
+            AssetDatabase.CreateAsset(skyboxMaterial, $"{MaterialsFolder}/Skybox.mat");
+
+            RenderSettings.skybox = skyboxMaterial;
+            DynamicGI.UpdateEnvironment();
+        }
+
+        // A generic wise-traveler's tent: not tied to any specific real
+        // culture or spiritual tradition, deliberately -- a plain canvas
+        // cone and a robed figure who shares a short, kid-friendly line of
+        // wisdom when you step inside.
+        private static void BuildElderTent(Terrain terrain, Material tentMaterial, Material robeMaterial, Material skinMaterial)
+        {
+            float baseY = terrain.SampleHeight(new Vector3(ElderTentX, 0f, ElderTentZ));
+            GameObject tentRoot = new GameObject("ElderTent");
+            tentRoot.transform.position = new Vector3(ElderTentX, baseY, ElderTentZ);
+
+            // Wide flat panels leaning in to a shared apex (like the
+            // campfire's log pile, but boards instead of round poles so
+            // adjacent panels actually overlap into a solid-looking wall
+            // instead of leaving gaps you can see the sky through). Three
+            // consecutive slots are skipped for an actual doorway -- facing
+            // roughly southwest, back toward spawn, so it's the side a
+            // player walking up to the tent sees first.
+            const int panelCount = 18;
+            const float baseRadius = 3.4f;
+            const float tentLength = 7f;
+            const float panelWidth = 1.5f;
+            const float panelThickness = 0.18f;
+            for (int i = 0; i < panelCount; i++)
+            {
+                if (i >= 11 && i <= 13)
+                    continue; // doorway
+
+                float angle = i * (360f / panelCount);
+                CreateTentPanel(tentRoot.transform, tentMaterial, $"Panel{i}", angle, baseRadius, tentLength, panelWidth, panelThickness);
+            }
+
+            // Floor mat.
+            GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            floor.name = "Floor";
+            floor.transform.SetParent(tentRoot.transform, false);
+            floor.transform.localPosition = new Vector3(0f, 0.03f, 0f);
+            floor.transform.localScale = new Vector3(baseRadius * 1.6f, 0.03f, baseRadius * 1.6f);
+            Object.DestroyImmediate(floor.GetComponent<Collider>());
+            Renderer floorRenderer = floor.GetComponent<Renderer>();
+            if (floorRenderer != null)
+                floorRenderer.sharedMaterial = tentMaterial;
+
+            CreateElderNpc(tentRoot.transform, robeMaterial, skinMaterial);
+
+            Text speechText = BuildSpeechUI();
+
+            GameObject triggerGo = new GameObject("ElderTentTrigger");
+            triggerGo.transform.SetParent(tentRoot.transform, false);
+            triggerGo.transform.localPosition = new Vector3(0f, 1f, 0f);
+            ElderTentSpeech speech = triggerGo.AddComponent<ElderTentSpeech>();
+            SetPrivateField(speech, "displayText", speechText);
+            SetPrivateField(speech, "triggerRadius", baseRadius * 0.9f);
+        }
+
+        // A simple standing robed figure, reusing the same body-part
+        // primitives as the player avatar (CreateBodyPart/CreateLimb).
+        private static void CreateElderNpc(Transform parent, Material robeMaterial, Material skinMaterial)
+        {
+            GameObject elder = new GameObject("Elder");
+            elder.transform.SetParent(parent, false);
+            elder.transform.localPosition = new Vector3(0f, 0f, -0.6f);
+
+            CreateBodyPart(elder.transform, "Torso", new Vector3(0f, 0.9f, 0f), new Vector3(0.7f, 1.1f, 0.5f), robeMaterial);
+            CreateBodyPart(elder.transform, "Head", new Vector3(0f, 1.65f, 0f), new Vector3(0.4f, 0.4f, 0.4f), skinMaterial);
+            CreateLimb(elder.transform, "LeftArm", new Vector3(-0.45f, 1.3f, 0f), new Vector3(0.25f, 0.8f, 0.25f), robeMaterial);
+            CreateLimb(elder.transform, "RightArm", new Vector3(0.45f, 1.3f, 0f), new Vector3(0.25f, 0.8f, 0.25f), robeMaterial);
+            CreateLimb(elder.transform, "LeftLeg", new Vector3(-0.2f, 0.4f, 0f), new Vector3(0.3f, 0.8f, 0.3f), robeMaterial);
+            CreateLimb(elder.transform, "RightLeg", new Vector3(0.2f, 0.4f, 0f), new Vector3(0.3f, 0.8f, 0.3f), robeMaterial);
+
+            // A simple walking staff propped beside them.
+            GameObject staff = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            staff.name = "Staff";
+            staff.transform.SetParent(elder.transform, false);
+            staff.transform.localPosition = new Vector3(0.55f, 0.9f, 0f);
+            staff.transform.localScale = new Vector3(0.06f, 0.9f, 0.06f);
+            Object.DestroyImmediate(staff.GetComponent<Collider>());
+            Renderer staffRenderer = staff.GetComponent<Renderer>();
+            if (staffRenderer != null)
+                staffRenderer.sharedMaterial = robeMaterial;
+        }
+
+        // Bottom-center text readout for ElderTentSpeech -- empty until the
+        // player steps into the tent's trigger. Its own small canvas, no
+        // GraphicRaycaster/EventSystem needed since it's display-only.
+        private static Text BuildSpeechUI()
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            GameObject canvasGo = new GameObject("ElderSpeechUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            GameObject textGo = new GameObject("SpeechText");
+            textGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform textRect = textGo.AddComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0.5f, 0f);
+            textRect.anchorMax = new Vector2(0.5f, 0f);
+            textRect.pivot = new Vector2(0.5f, 0f);
+            textRect.sizeDelta = new Vector2(1100f, 140f);
+            textRect.anchoredPosition = new Vector2(0f, 140f);
+
+            Text text = textGo.AddComponent<Text>();
+            text.font = font;
+            text.fontSize = 40;
+            text.fontStyle = FontStyle.Bold;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.text = string.Empty;
+
+            // Dark outline so bold white text stays readable against sky,
+            // grass, or the tent's own tan canvas behind it.
+            Outline outline = textGo.AddComponent<Outline>();
+            outline.effectColor = new Color(0.15f, 0.1f, 0.05f, 0.8f);
+            outline.effectDistance = new Vector2(2f, -2f);
+
+            return text;
         }
 
         private static GameObject CreateTreePrefab(Material trunkMaterial, Material leafMaterial)
@@ -1372,6 +1605,7 @@ namespace Sandbox.EditorTools
             Vector2 courseCenter = new Vector2(CourseStartX, CourseStartZ);
             Vector2 storyCenter = new Vector2(StoryPlaceX, StoryPlaceZ);
             Vector2 hillCenter = new Vector2(HillCenterX, HillCenterZ);
+            Vector2 elderTentCenter = new Vector2(ElderTentX, ElderTentZ);
 
             for (int i = 0; i < count; i++)
             {
@@ -1384,7 +1618,8 @@ namespace Sandbox.EditorTools
                     || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius
                     || Vector2.Distance(new Vector2(x, z), courseCenter) < CourseExclusionRadius
                     || Vector2.Distance(new Vector2(x, z), storyCenter) < StoryPlaceExclusionRadius
-                    || Vector2.Distance(new Vector2(x, z), hillCenter) < HillPeakClearRadius);
+                    || Vector2.Distance(new Vector2(x, z), hillCenter) < HillPeakClearRadius
+                    || Vector2.Distance(new Vector2(x, z), elderTentCenter) < ElderTentExclusionRadius);
 
                 float y = terrain.SampleHeight(new Vector3(x, 0f, z));
                 Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
