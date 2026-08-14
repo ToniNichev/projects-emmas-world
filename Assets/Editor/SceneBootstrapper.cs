@@ -51,6 +51,14 @@ namespace Sandbox.EditorTools
         private const float CourseStartZ = 0f;
         private const float CourseExclusionRadius = 12f; // the spiral tower's footprint is much smaller than the old straight-line course
 
+        // Storytale place placement -- a fireside clearing on the opposite
+        // side of spawn from the lake and obstacle course, close enough
+        // (like the course) to actually be stumbled across rather than
+        // requiring blind exploration.
+        private const float StoryPlaceX = -22f;
+        private const float StoryPlaceZ = 18f;
+        private const float StoryPlaceExclusionRadius = 7f;
+
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
         {
@@ -103,6 +111,11 @@ namespace Sandbox.EditorTools
             GameObject placedBlocks = new GameObject("PlacedBlocks");
 
             BuildObstacleCourse(blockPrefabs, terrain);
+
+            Material fireGlowMaterial = CreateMaterial("FireGlow", new Color(1f, 0.45f, 0.1f));
+            fireGlowMaterial.EnableKeyword("_EMISSION");
+            fireGlowMaterial.SetColor("_EmissionColor", new Color(1f, 0.45f, 0.1f) * 2.5f);
+            BuildStorytalePlace(terrain, trunkMaterial, rockMaterial, fireGlowMaterial);
 
             GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial);
 
@@ -665,6 +678,122 @@ namespace Sandbox.EditorTools
             return platform;
         }
 
+        // A fireside clearing: a stone-ringed pit with crossed logs and a
+        // flickering flame at its center, plus a few sitting-logs around it
+        // -- the kind of spot a group would gather to tell stories.
+        private static void BuildStorytalePlace(Terrain terrain, Material logMaterial, Material stoneMaterial, Material fireGlowMaterial)
+        {
+            GameObject root = new GameObject("StorytalePlace");
+            float baseY = terrain.SampleHeight(new Vector3(StoryPlaceX, 0f, StoryPlaceZ));
+            root.transform.position = new Vector3(StoryPlaceX, baseY, StoryPlaceZ);
+
+            BuildFirePit(root.transform, stoneMaterial, logMaterial, fireGlowMaterial);
+            BuildStoryBenches(root.transform, logMaterial);
+        }
+
+        private static void BuildFirePit(Transform parent, Material stoneMaterial, Material logMaterial, Material fireGlowMaterial)
+        {
+            const int stoneCount = 10;
+            const float ringRadius = 1.15f;
+            for (int i = 0; i < stoneCount; i++)
+            {
+                float angle = i * (360f / stoneCount) * Mathf.Deg2Rad;
+                GameObject stone = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                stone.name = $"FireStone{i}";
+                stone.transform.SetParent(parent, false);
+                stone.transform.localPosition = new Vector3(Mathf.Cos(angle) * ringRadius, 0.12f, Mathf.Sin(angle) * ringRadius);
+                stone.transform.localScale = new Vector3(0.32f, 0.24f, 0.28f);
+                stone.transform.localRotation = Quaternion.Euler(
+                    UnityEngine.Random.Range(-10f, 10f),
+                    UnityEngine.Random.Range(0f, 360f),
+                    UnityEngine.Random.Range(-10f, 10f));
+                stone.GetComponent<Renderer>().sharedMaterial = stoneMaterial;
+            }
+
+            // Four leaning logs meeting above the center, teepee-style --
+            // slightly uneven angles/lengths so it reads as a stacked pile
+            // rather than a perfectly symmetric prop.
+            CreateLeaningLog(parent, logMaterial, "Log0", 5f, 0.75f, 1.15f, 0.14f);
+            CreateLeaningLog(parent, logMaterial, "Log1", 95f, 0.8f, 1.05f, 0.13f);
+            CreateLeaningLog(parent, logMaterial, "Log2", 185f, 0.7f, 1.1f, 0.14f);
+            CreateLeaningLog(parent, logMaterial, "Log3", 268f, 0.78f, 1.0f, 0.12f);
+
+            GameObject flame = new GameObject("Flame");
+            flame.transform.SetParent(parent, false);
+            flame.transform.localPosition = new Vector3(0f, 0.35f, 0f);
+
+            CreateFlameBlob(flame.transform, fireGlowMaterial, "FlameOuter", new Vector3(0f, 0f, 0f), 0.5f);
+            CreateFlameBlob(flame.transform, fireGlowMaterial, "FlameInner", new Vector3(0f, 0.18f, 0f), 0.28f);
+
+            Light fireLight = flame.AddComponent<Light>();
+            fireLight.type = LightType.Point;
+            fireLight.color = new Color(1f, 0.55f, 0.2f);
+            fireLight.intensity = 2.5f;
+            fireLight.range = 9f;
+            flame.AddComponent<FireFlicker>();
+        }
+
+        // FromToRotation on the cylinder's default up axis both aims and lays
+        // it down in one step: base sits at the ring, tip leans in toward a
+        // point above center, and the log's length runs along that line.
+        private static void CreateLeaningLog(Transform parent, Material material, string name, float angleDegrees, float baseRadius, float length, float diameter)
+        {
+            GameObject log = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            log.name = name;
+            log.transform.SetParent(parent, false);
+
+            float rad = angleDegrees * Mathf.Deg2Rad;
+            Vector3 basePoint = new Vector3(Mathf.Cos(rad), 0.05f, Mathf.Sin(rad)) * baseRadius;
+            Vector3 tipPoint = new Vector3(0f, length * 0.85f, 0f);
+            Vector3 direction = (tipPoint - basePoint).normalized;
+
+            log.transform.localPosition = (basePoint + tipPoint) / 2f;
+            log.transform.localRotation = Quaternion.FromToRotation(Vector3.up, direction);
+            log.transform.localScale = new Vector3(diameter, length / 2f, diameter);
+            log.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
+        // Stretched vertically so it reads as a flame lick rather than a
+        // ball; no collider since it's purely a visual, not something to
+        // bump into or that should block block-placement raycasts.
+        private static void CreateFlameBlob(Transform parent, Material material, string name, Vector3 localPosition, float scale)
+        {
+            GameObject blob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+            blob.name = name;
+            blob.transform.SetParent(parent, false);
+            blob.transform.localPosition = localPosition;
+            blob.transform.localScale = new Vector3(scale, scale * 1.4f, scale);
+            Object.DestroyImmediate(blob.GetComponent<Collider>());
+            blob.GetComponent<Renderer>().sharedMaterial = material;
+        }
+
+        // Sitting logs ringed around the fire, gapped on one side so
+        // there's an obvious way in rather than a solid ring you'd have to
+        // walk over to reach the fire.
+        private static void BuildStoryBenches(Transform parent, Material logMaterial)
+        {
+            float[] benchAngles = { -70f, -25f, 25f, 70f, 145f, -145f };
+            const float benchRadius = 3.2f;
+            const float benchLength = 1.6f;
+            const float benchDiameter = 0.4f;
+
+            foreach (float angle in benchAngles)
+            {
+                float rad = angle * Mathf.Deg2Rad;
+                Vector3 tangent = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+
+                GameObject bench = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                bench.name = $"Bench{angle}";
+                bench.transform.SetParent(parent, false);
+                bench.transform.localPosition = new Vector3(Mathf.Cos(rad) * benchRadius, benchDiameter / 2f, Mathf.Sin(rad) * benchRadius);
+                // Lays the cylinder on its side with its length running
+                // along the tangent, so it sits facing the fire like a bench.
+                bench.transform.localRotation = Quaternion.FromToRotation(Vector3.up, tangent);
+                bench.transform.localScale = new Vector3(benchDiameter, benchLength / 2f, benchDiameter);
+                bench.GetComponent<Renderer>().sharedMaterial = logMaterial;
+            }
+        }
+
         private static GameObject CreateRockPrefab(Material material)
         {
             GameObject root = new GameObject("Rock");
@@ -759,6 +888,7 @@ namespace Sandbox.EditorTools
             Vector2 lakeCenter = new Vector2(LakeCenterX, LakeCenterZ);
             float lakeExclusionRadius = LakeRadius + LakeShoreBlend + 2f; // keep props off the shore, not just out of the water
             Vector2 courseCenter = new Vector2(CourseStartX, CourseStartZ);
+            Vector2 storyCenter = new Vector2(StoryPlaceX, StoryPlaceZ);
 
             for (int i = 0; i < count; i++)
             {
@@ -769,7 +899,8 @@ namespace Sandbox.EditorTools
                     z = UnityEngine.Random.Range(-worldSize / 2f, worldSize / 2f);
                 } while (new Vector2(x, z).magnitude < clearRadius
                     || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius
-                    || Vector2.Distance(new Vector2(x, z), courseCenter) < CourseExclusionRadius);
+                    || Vector2.Distance(new Vector2(x, z), courseCenter) < CourseExclusionRadius
+                    || Vector2.Distance(new Vector2(x, z), storyCenter) < StoryPlaceExclusionRadius);
 
                 float y = terrain.SampleHeight(new Vector3(x, 0f, z));
                 Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
