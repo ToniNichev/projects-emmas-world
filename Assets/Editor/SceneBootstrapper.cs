@@ -1584,7 +1584,7 @@ namespace Sandbox.EditorTools
             panelRect.anchorMin = new Vector2(0.5f, 1f);
             panelRect.anchorMax = new Vector2(0.5f, 1f);
             panelRect.pivot = new Vector2(0.5f, 1f);
-            panelRect.sizeDelta = new Vector2(420f, 220f);
+            panelRect.sizeDelta = new Vector2(420f, 480f);
             panelRect.anchoredPosition = new Vector2(0f, -40f);
             Image panelBackground = panel.AddComponent<Image>();
             panelBackground.color = new Color(0f, 0f, 0f, 0.55f);
@@ -1608,6 +1608,10 @@ namespace Sandbox.EditorTools
             BuildSwatchRow(panel.transform, "Shirt", 0, shirtColors, ColorSwatchButton.Target.Shirt, customization);
             BuildSwatchRow(panel.transform, "Skin", 1, skinColors, ColorSwatchButton.Target.Skin, customization);
             BuildSwatchRow(panel.transform, "Pants", 2, legColors, ColorSwatchButton.Target.Legs, customization);
+
+            BuildAccessoryRow(panel.transform, "Hat", 3, new[] { "None", "Cap", "Top", "Party" }, AccessoryToggleButton.Category.Hat, customization);
+            BuildAccessoryRow(panel.transform, "Glasses", 4, new[] { "None", "Black", "Red" }, AccessoryToggleButton.Category.Glasses, customization);
+            BuildAccessoryRow(panel.transform, "Bag", 5, new[] { "None", "Blue", "Red" }, AccessoryToggleButton.Category.Backpack, customization);
 
             return panel;
         }
@@ -1659,6 +1663,69 @@ namespace Sandbox.EditorTools
                 // added from this editor script doesn't survive being
                 // saved into the scene.
                 UnityEventTools.AddPersistentListener(button.onClick, swatch.Apply);
+            }
+        }
+
+        // Text-labeled buttons instead of color swatches -- these pick a
+        // style/GameObject (or "None"), not a color, so a colored square
+        // wouldn't communicate the choice the way it does for the shirt/
+        // skin/pants rows above.
+        private static void BuildAccessoryRow(Transform parent, string label, int rowIndex, string[] optionLabels, AccessoryToggleButton.Category category, AvatarCustomization customization)
+        {
+            float rowY = -10f - rowIndex * 65f;
+
+            GameObject labelGo = new GameObject($"{label}Label");
+            labelGo.transform.SetParent(parent, false);
+            RectTransform labelRect = labelGo.AddComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.pivot = new Vector2(0f, 1f);
+            labelRect.sizeDelta = new Vector2(100f, 30f);
+            labelRect.anchoredPosition = new Vector2(15f, rowY);
+            Text rowLabelText = labelGo.AddComponent<Text>();
+            rowLabelText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            rowLabelText.text = label;
+            rowLabelText.fontSize = 16;
+            rowLabelText.color = Color.white;
+            rowLabelText.alignment = TextAnchor.MiddleLeft;
+
+            for (int i = 0; i < optionLabels.Length; i++)
+            {
+                GameObject buttonGo = new GameObject($"{label}Option{i}");
+                buttonGo.transform.SetParent(parent, false);
+                RectTransform buttonRect = buttonGo.AddComponent<RectTransform>();
+                buttonRect.anchorMin = new Vector2(0f, 1f);
+                buttonRect.anchorMax = new Vector2(0f, 1f);
+                buttonRect.pivot = new Vector2(0f, 1f);
+                buttonRect.sizeDelta = new Vector2(58f, 34f);
+                buttonRect.anchoredPosition = new Vector2(120f + i * 64f, rowY);
+
+                Image buttonImage = buttonGo.AddComponent<Image>();
+                buttonImage.color = new Color(1f, 1f, 1f, 0.15f);
+
+                Button button = buttonGo.AddComponent<Button>();
+                button.targetGraphic = buttonImage;
+
+                GameObject textGo = new GameObject("Label");
+                textGo.transform.SetParent(buttonGo.transform, false);
+                RectTransform textRect = textGo.AddComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = Vector2.zero;
+                textRect.offsetMax = Vector2.zero;
+                Text optionText = textGo.AddComponent<Text>();
+                optionText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+                optionText.text = optionLabels[i];
+                optionText.fontSize = 13;
+                optionText.alignment = TextAnchor.MiddleCenter;
+                optionText.color = Color.white;
+
+                AccessoryToggleButton toggle = buttonGo.AddComponent<AccessoryToggleButton>();
+                SetPrivateField(toggle, "customization", customization);
+                SetPrivateField(toggle, "category", category);
+                SetPrivateField(toggle, "index", i);
+
+                UnityEventTools.AddPersistentListener(button.onClick, toggle.Apply);
             }
         }
 
@@ -1935,6 +2002,11 @@ namespace Sandbox.EditorTools
                 avatar.transform.Find("RightLegPivot/RightLeg").GetComponent<Renderer>(),
             });
 
+            BuildAccessories(avatar, out GameObject[] hats, out GameObject[] glassesOptions, out GameObject[] backpacks);
+            SetPrivateField(customization, "hats", hats);
+            SetPrivateField(customization, "glasses", glassesOptions);
+            SetPrivateField(customization, "backpacks", backpacks);
+
             player.AddComponent<SoundEffects>();
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
@@ -2013,6 +2085,130 @@ namespace Sandbox.EditorTools
             if (!success)
                 Debug.LogError("SceneBootstrapper: failed to save RemoteAvatar prefab");
             return prefab;
+        }
+
+        // Hats/glasses/backpacks the mirror can toggle on the avatar --
+        // each array's index 0 is left null ("None"); AvatarCustomization
+        // treats a null entry as "deactivate everything else in this
+        // category" rather than needing a real empty GameObject for it.
+        // Every option starts inactive so "None" is the default look.
+        private static void BuildAccessories(GameObject avatar, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        {
+            Material capMaterial = CreateMaterial("HatCap", new Color(0.75f, 0.15f, 0.15f));
+            Material topHatMaterial = CreateMaterial("HatTop", new Color(0.1f, 0.1f, 0.12f));
+            Material partyHatMaterial = CreateMaterial("HatParty", new Color(0.95f, 0.75f, 0.1f));
+            Material glassesBlackMaterial = CreateMaterial("GlassesBlack", new Color(0.05f, 0.05f, 0.05f));
+            Material glassesRedMaterial = CreateMaterial("GlassesRed", new Color(0.7f, 0.1f, 0.1f));
+            Material backpackBlueMaterial = CreateMaterial("BackpackBlue", new Color(0.15f, 0.35f, 0.75f));
+            Material backpackRedMaterial = CreateMaterial("BackpackRed", new Color(0.7f, 0.15f, 0.15f));
+
+            GameObject cap = CreateHatCap(avatar.transform, capMaterial);
+            GameObject topHat = CreateHatTop(avatar.transform, topHatMaterial);
+            GameObject partyHat = CreateHatParty(avatar.transform, partyHatMaterial);
+            hats = new[] { null, cap, topHat, partyHat };
+
+            GameObject glassesBlack = CreateGlasses(avatar.transform, "GlassesBlack", glassesBlackMaterial);
+            GameObject glassesRed = CreateGlasses(avatar.transform, "GlassesRed", glassesRedMaterial);
+            glasses = new[] { null, glassesBlack, glassesRed };
+
+            GameObject backpackBlue = CreateBackpack(avatar.transform, "BackpackBlue", backpackBlueMaterial);
+            GameObject backpackRed = CreateBackpack(avatar.transform, "BackpackRed", backpackRedMaterial);
+            backpacks = new[] { null, backpackBlue, backpackRed };
+
+            foreach (GameObject option in hats)
+                option?.SetActive(false);
+            foreach (GameObject option in glasses)
+                option?.SetActive(false);
+            foreach (GameObject option in backpacks)
+                option?.SetActive(false);
+        }
+
+        private static GameObject CreateHatCap(Transform avatarTransform, Material material)
+        {
+            GameObject cap = new GameObject("HatCap");
+            cap.transform.SetParent(avatarTransform, false);
+            cap.transform.localPosition = new Vector3(0f, 1.02f, 0f);
+
+            GameObject dome = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            dome.name = "Dome";
+            dome.transform.SetParent(cap.transform, false);
+            dome.transform.localScale = new Vector3(0.44f, 0.12f, 0.44f);
+            Object.DestroyImmediate(dome.GetComponent<Collider>());
+            dome.GetComponent<Renderer>().sharedMaterial = material;
+
+            GameObject brim = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            brim.name = "Brim";
+            brim.transform.SetParent(cap.transform, false);
+            brim.transform.localPosition = new Vector3(0f, -0.05f, 0.28f);
+            brim.transform.localScale = new Vector3(0.3f, 0.03f, 0.24f);
+            Object.DestroyImmediate(brim.GetComponent<Collider>());
+            brim.GetComponent<Renderer>().sharedMaterial = material;
+
+            return cap;
+        }
+
+        private static GameObject CreateHatTop(Transform avatarTransform, Material material)
+        {
+            GameObject hat = new GameObject("HatTop");
+            hat.transform.SetParent(avatarTransform, false);
+            hat.transform.localPosition = new Vector3(0f, 1f, 0f);
+
+            GameObject crown = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            crown.name = "Crown";
+            crown.transform.SetParent(hat.transform, false);
+            crown.transform.localPosition = new Vector3(0f, 0.22f, 0f);
+            crown.transform.localScale = new Vector3(0.3f, 0.24f, 0.3f);
+            Object.DestroyImmediate(crown.GetComponent<Collider>());
+            crown.GetComponent<Renderer>().sharedMaterial = material;
+
+            GameObject brim = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            brim.name = "Brim";
+            brim.transform.SetParent(hat.transform, false);
+            brim.transform.localScale = new Vector3(0.46f, 0.02f, 0.46f);
+            Object.DestroyImmediate(brim.GetComponent<Collider>());
+            brim.GetComponent<Renderer>().sharedMaterial = material;
+
+            return hat;
+        }
+
+        private static GameObject CreateHatParty(Transform avatarTransform, Material material)
+        {
+            GameObject hat = new GameObject("HatParty");
+            hat.transform.SetParent(avatarTransform, false);
+            hat.transform.localPosition = new Vector3(0f, 1f, 0f);
+
+            GameObject spike = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            spike.name = "Spike";
+            spike.transform.SetParent(hat.transform, false);
+            spike.transform.localPosition = new Vector3(0f, 0.24f, 0f);
+            spike.transform.localScale = new Vector3(0.22f, 0.26f, 0.22f);
+            Object.DestroyImmediate(spike.GetComponent<Collider>());
+            spike.GetComponent<Renderer>().sharedMaterial = material;
+
+            return hat;
+        }
+
+        private static GameObject CreateGlasses(Transform avatarTransform, string name, Material material)
+        {
+            GameObject glassesGo = new GameObject(name);
+            glassesGo.transform.SetParent(avatarTransform, false);
+            glassesGo.transform.localPosition = new Vector3(0f, 0.82f, 0f);
+
+            CreateBodyPart(glassesGo.transform, "LeftLens", new Vector3(-0.11f, 0f, 0.19f), new Vector3(0.12f, 0.08f, 0.03f), material);
+            CreateBodyPart(glassesGo.transform, "RightLens", new Vector3(0.11f, 0f, 0.19f), new Vector3(0.12f, 0.08f, 0.03f), material);
+            CreateBodyPart(glassesGo.transform, "Bridge", new Vector3(0f, 0f, 0.19f), new Vector3(0.08f, 0.02f, 0.02f), material);
+
+            return glassesGo;
+        }
+
+        private static GameObject CreateBackpack(Transform avatarTransform, string name, Material material)
+        {
+            GameObject backpack = new GameObject(name);
+            backpack.transform.SetParent(avatarTransform, false);
+
+            CreateBodyPart(backpack.transform, "Bag", new Vector3(0f, 0.3f, -0.32f), new Vector3(0.5f, 0.55f, 0.22f), material);
+
+            return backpack;
         }
 
         private static void CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
