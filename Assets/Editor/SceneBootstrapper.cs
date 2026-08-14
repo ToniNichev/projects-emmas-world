@@ -147,6 +147,7 @@ namespace Sandbox.EditorTools
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
             BuildEventSystem();
             BuildMobileControls(player.GetComponent<ThirdPersonController>(), cameraController, player.GetComponent<BuildPlacer>());
+            BuildMirror(player.GetComponent<AvatarCustomization>());
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -1518,6 +1519,149 @@ namespace Sandbox.EditorTools
             return text;
         }
 
+        // A simple standing mirror near spawn -- a framed glossy panel on
+        // a stand. Not a real reflection (that needs a second camera and a
+        // RenderTexture, real cost/complexity for something purely
+        // cosmetic); a shiny flat panel reads as "mirror" well enough for
+        // a customization prop.
+        private static void BuildMirror(AvatarCustomization customization)
+        {
+            Vector3 mirrorPos = new Vector3(-6f, 0f, -3f);
+            GameObject mirrorGo = new GameObject("Mirror");
+            mirrorGo.transform.position = mirrorPos;
+            mirrorGo.transform.rotation = Quaternion.Euler(0f, 30f, 0f); // angled back toward spawn
+
+            Material frameMaterial = CreateMaterial("MirrorFrame", new Color(0.3f, 0.22f, 0.15f));
+            Material glassMaterial = CreateMaterial("MirrorGlass", new Color(0.75f, 0.8f, 0.85f));
+            glassMaterial.SetFloat("_Glossiness", 0.95f);
+            glassMaterial.SetFloat("_Metallic", 0.6f);
+
+            GameObject frame = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            frame.name = "Frame";
+            frame.transform.SetParent(mirrorGo.transform, false);
+            frame.transform.localPosition = new Vector3(0f, 1.1f, 0f);
+            frame.transform.localScale = new Vector3(1.1f, 1.8f, 0.12f);
+            frame.GetComponent<Renderer>().sharedMaterial = frameMaterial;
+
+            GameObject glass = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            glass.name = "Glass";
+            glass.transform.SetParent(mirrorGo.transform, false);
+            glass.transform.localPosition = new Vector3(0f, 1.1f, 0.07f);
+            glass.transform.localScale = new Vector3(0.9f, 1.55f, 0.03f);
+            Object.DestroyImmediate(glass.GetComponent<Collider>());
+            glass.GetComponent<Renderer>().sharedMaterial = glassMaterial;
+
+            GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            stand.name = "Stand";
+            stand.transform.SetParent(mirrorGo.transform, false);
+            stand.transform.localPosition = new Vector3(0f, 0.1f, -0.15f);
+            stand.transform.localScale = new Vector3(0.5f, 0.2f, 0.4f);
+            stand.GetComponent<Renderer>().sharedMaterial = frameMaterial;
+
+            GameObject panel = BuildMirrorPanel(customization);
+
+            MirrorProximityUI proximity = mirrorGo.AddComponent<MirrorProximityUI>();
+            SetPrivateField(proximity, "panel", panel);
+            SetPrivateField(proximity, "radius", 2.5f);
+        }
+
+        // Hidden by default (MirrorProximityUI shows/hides it based on
+        // distance to the mirror) -- three rows of color swatches for
+        // shirt, skin, and pants.
+        private static GameObject BuildMirrorPanel(AvatarCustomization customization)
+        {
+            GameObject canvasGo = new GameObject("MirrorUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+            canvasGo.AddComponent<GraphicRaycaster>();
+
+            GameObject panel = new GameObject("Panel");
+            panel.transform.SetParent(canvasGo.transform, false);
+            RectTransform panelRect = panel.AddComponent<RectTransform>();
+            panelRect.anchorMin = new Vector2(0.5f, 1f);
+            panelRect.anchorMax = new Vector2(0.5f, 1f);
+            panelRect.pivot = new Vector2(0.5f, 1f);
+            panelRect.sizeDelta = new Vector2(420f, 220f);
+            panelRect.anchoredPosition = new Vector2(0f, -40f);
+            Image panelBackground = panel.AddComponent<Image>();
+            panelBackground.color = new Color(0f, 0f, 0f, 0.55f);
+
+            Color[] shirtColors =
+            {
+                new Color(0.2f, 0.45f, 0.85f), new Color(0.85f, 0.2f, 0.2f), new Color(0.2f, 0.7f, 0.3f),
+                new Color(0.9f, 0.8f, 0.2f), new Color(0.6f, 0.2f, 0.75f),
+            };
+            Color[] skinColors =
+            {
+                new Color(0.96f, 0.8f, 0.65f), new Color(0.85f, 0.65f, 0.45f),
+                new Color(0.6f, 0.42f, 0.28f), new Color(0.4f, 0.28f, 0.18f),
+            };
+            Color[] legColors =
+            {
+                new Color(0.25f, 0.35f, 0.55f), new Color(0.15f, 0.15f, 0.15f), new Color(0.5f, 0.35f, 0.2f),
+                new Color(0.3f, 0.3f, 0.3f), new Color(0.35f, 0.5f, 0.3f),
+            };
+
+            BuildSwatchRow(panel.transform, "Shirt", 0, shirtColors, ColorSwatchButton.Target.Shirt, customization);
+            BuildSwatchRow(panel.transform, "Skin", 1, skinColors, ColorSwatchButton.Target.Skin, customization);
+            BuildSwatchRow(panel.transform, "Pants", 2, legColors, ColorSwatchButton.Target.Legs, customization);
+
+            return panel;
+        }
+
+        private static void BuildSwatchRow(Transform parent, string label, int rowIndex, Color[] colors, ColorSwatchButton.Target target, AvatarCustomization customization)
+        {
+            float rowY = -10f - rowIndex * 65f;
+
+            GameObject labelGo = new GameObject($"{label}Label");
+            labelGo.transform.SetParent(parent, false);
+            RectTransform labelRect = labelGo.AddComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.pivot = new Vector2(0f, 1f);
+            labelRect.sizeDelta = new Vector2(100f, 30f);
+            labelRect.anchoredPosition = new Vector2(15f, rowY);
+            Text labelText = labelGo.AddComponent<Text>();
+            labelText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            labelText.text = label;
+            labelText.fontSize = 16;
+            labelText.color = Color.white;
+            labelText.alignment = TextAnchor.MiddleLeft;
+
+            for (int i = 0; i < colors.Length; i++)
+            {
+                GameObject swatchGo = new GameObject($"{label}Swatch{i}");
+                swatchGo.transform.SetParent(parent, false);
+                RectTransform swatchRect = swatchGo.AddComponent<RectTransform>();
+                swatchRect.anchorMin = new Vector2(0f, 1f);
+                swatchRect.anchorMax = new Vector2(0f, 1f);
+                swatchRect.pivot = new Vector2(0f, 1f);
+                swatchRect.sizeDelta = new Vector2(40f, 40f);
+                swatchRect.anchoredPosition = new Vector2(120f + i * 50f, rowY - 5f);
+
+                Image swatchImage = swatchGo.AddComponent<Image>();
+                swatchImage.color = colors[i];
+
+                Button button = swatchGo.AddComponent<Button>();
+                button.targetGraphic = swatchImage;
+
+                ColorSwatchButton swatch = swatchGo.AddComponent<ColorSwatchButton>();
+                SetPrivateField(swatch, "customization", customization);
+                SetPrivateField(swatch, "target", target);
+                SetPrivateField(swatch, "color", colors[i]);
+
+                // AddPersistentListener, not button.onClick.AddListener --
+                // see the identical note on the mobile corner buttons
+                // (CreateCornerButton) for why: a plain runtime listener
+                // added from this editor script doesn't survive being
+                // saved into the scene.
+                UnityEventTools.AddPersistentListener(button.onClick, swatch.Apply);
+            }
+        }
+
         private static GameObject CreateTreePrefab(Material trunkMaterial, Material leafMaterial)
         {
             GameObject root = new GameObject("Tree");
@@ -1772,7 +1916,24 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial);
+            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial);
+
+            AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
+            SetPrivateField(customization, "shirtRenderers", new[]
+            {
+                avatar.transform.Find("Torso").GetComponent<Renderer>(),
+            });
+            SetPrivateField(customization, "skinRenderers", new[]
+            {
+                avatar.transform.Find("Head").GetComponent<Renderer>(),
+                avatar.transform.Find("LeftArmPivot/LeftArm").GetComponent<Renderer>(),
+                avatar.transform.Find("RightArmPivot/RightArm").GetComponent<Renderer>(),
+            });
+            SetPrivateField(customization, "legsRenderers", new[]
+            {
+                avatar.transform.Find("LeftLegPivot/LeftLeg").GetComponent<Renderer>(),
+                avatar.transform.Find("RightLegPivot/RightLeg").GetComponent<Renderer>(),
+            });
 
             player.AddComponent<SoundEffects>();
 
