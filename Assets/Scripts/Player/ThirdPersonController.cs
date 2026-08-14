@@ -12,7 +12,6 @@ namespace Sandbox.Player
         [SerializeField] private float sprintSpeed = 10f;
         [SerializeField] private float jumpHeight = 1.5f;
         [SerializeField] private float gravity = -18f;
-        [SerializeField] private float rotationSpeed = 12f;
         [SerializeField] private Transform cameraTransform;
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
@@ -167,8 +166,11 @@ namespace Sandbox.Player
             Vector3 moveDir = (forward * inputDir.z + right * inputDir.x).normalized;
             float speed = (sprintHeld ? sprintSpeed : moveSpeed) * inputMagnitude;
 
-            Quaternion targetRotation = Quaternion.LookRotation(moveDir, Vector3.up);
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+            // Face the movement direction immediately (Roblox-style) rather
+            // than easing into it -- a smoothed turn made the avatar visibly
+            // spin in place before walking whenever it wasn't already facing
+            // where the camera-relative input pointed.
+            transform.rotation = Quaternion.LookRotation(moveDir, Vector3.up);
 
             Vector3 motion = moveDir * speed + verticalVelocity;
             controller.Move(motion * Time.deltaTime);
