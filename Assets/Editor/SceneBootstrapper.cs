@@ -539,15 +539,91 @@ namespace Sandbox.EditorTools
         // an invisible flat plane.
         private static void CreateLake(Material waterMaterial)
         {
-            GameObject water = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            water.name = "Lake";
-            Object.DestroyImmediate(water.GetComponent<Collider>());
+            // A flat Cylinder cap (used previously) has no interior
+            // vertices to displace -- just a fan from rim to one center
+            // point -- so even with a rippled texture it reads as a static,
+            // perfectly flat disc. A proper radial grid mesh gives
+            // WaterWave real per-vertex geometry to animate.
+            GameObject water = new GameObject("Lake");
             water.transform.position = new Vector3(LakeCenterX, LakeSurfaceY, LakeCenterZ);
-            water.transform.localScale = new Vector3(LakeRadius * 2f, 0.05f, LakeRadius * 2f);
-            water.GetComponent<Renderer>().sharedMaterial = waterMaterial;
+
+            Mesh waterMesh = CreateWaterMesh(LakeRadius, 10, 32);
+            Directory.CreateDirectory(TerrainFolder);
+            AssetDatabase.CreateAsset(waterMesh, $"{TerrainFolder}/LakeMesh.asset");
+
+            MeshFilter meshFilter = water.AddComponent<MeshFilter>();
+            meshFilter.sharedMesh = waterMesh;
+            MeshRenderer meshRenderer = water.AddComponent<MeshRenderer>();
+            meshRenderer.sharedMaterial = waterMaterial;
+
             water.AddComponent<WaterAnimator>();
+            water.AddComponent<WaterWave>();
 
             CreateLakeSplashes();
+        }
+
+        // Radial grid disc (concentric rings of vertices around a center
+        // point) instead of a simple fan -- gives WaterWave enough interior
+        // vertices to displace for a real wave pattern. Every triangle is
+        // added in both winding orders so the surface is guaranteed visible
+        // from above regardless of which order is "front-facing" -- Standard
+        // shader hardcodes backface culling with no material property to
+        // override it (the same issue hit with the foliage cards), so
+        // getting winding provably right here matters more than the modest
+        // extra triangle cost.
+        private static Mesh CreateWaterMesh(float radius, int rings, int segments)
+        {
+            var vertices = new System.Collections.Generic.List<Vector3>();
+            var uvs = new System.Collections.Generic.List<Vector2>();
+            var triangles = new System.Collections.Generic.List<int>();
+
+            void AddTriangle(int a, int b, int c)
+            {
+                triangles.Add(a); triangles.Add(b); triangles.Add(c);
+                triangles.Add(a); triangles.Add(c); triangles.Add(b);
+            }
+
+            vertices.Add(Vector3.zero);
+            uvs.Add(new Vector2(0.5f, 0.5f));
+
+            for (int ring = 1; ring <= rings; ring++)
+            {
+                float ringRadius = radius * ring / rings;
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    float angle = seg * Mathf.PI * 2f / segments;
+                    float x = Mathf.Cos(angle) * ringRadius;
+                    float z = Mathf.Sin(angle) * ringRadius;
+                    vertices.Add(new Vector3(x, 0f, z));
+                    uvs.Add(new Vector2(x / radius * 0.5f + 0.5f, z / radius * 0.5f + 0.5f));
+                }
+            }
+
+            for (int seg = 0; seg < segments; seg++)
+                AddTriangle(0, 1 + seg, 1 + (seg + 1) % segments);
+
+            for (int ring = 0; ring < rings - 1; ring++)
+            {
+                int ringStart = 1 + ring * segments;
+                int nextRingStart = 1 + (ring + 1) * segments;
+                for (int seg = 0; seg < segments; seg++)
+                {
+                    int a = ringStart + seg;
+                    int b = ringStart + (seg + 1) % segments;
+                    int c = nextRingStart + seg;
+                    int d = nextRingStart + (seg + 1) % segments;
+                    AddTriangle(a, c, d);
+                    AddTriangle(a, d, b);
+                }
+            }
+
+            var mesh = new Mesh { name = "LakeMesh" };
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
+            mesh.SetTriangles(triangles, 0);
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
         }
 
         // Small ring-shaped ripples that pop up at random points across the
