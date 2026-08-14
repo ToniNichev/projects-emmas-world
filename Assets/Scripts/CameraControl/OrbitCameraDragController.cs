@@ -63,9 +63,11 @@ namespace Sandbox.CameraControl
             float horizontalDelta;
             float verticalDelta;
 
-            if (Mouse.current != null && Mouse.current.rightButton.isPressed)
+            // Free-look, Roblox-style: any mouse movement orbits the camera,
+            // no button needs to be held.
+            Vector2 mouseDelta = Mouse.current != null ? Mouse.current.delta.ReadValue() : Vector2.zero;
+            if (mouseDelta.sqrMagnitude > 0.0001f)
             {
-                Vector2 mouseDelta = Mouse.current.delta.ReadValue();
                 horizontalDelta = mouseDelta.x * sensitivity;
                 verticalDelta = -mouseDelta.y * sensitivity;
             }
