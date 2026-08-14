@@ -18,6 +18,7 @@ using Sandbox.Multiplayer;
 using Sandbox.Save;
 using Sandbox.CameraControl;
 using Sandbox.Environment;
+using Sandbox.Obstacles;
 using Sandbox.UI;
 
 namespace Sandbox.EditorTools
@@ -59,6 +60,19 @@ namespace Sandbox.EditorTools
         private const float StoryPlaceZ = 18f;
         private const float StoryPlaceExclusionRadius = 7f;
 
+        // Hill landmark placement -- opposite corner from the lake, course,
+        // and storytale place so every point of interest sits in its own
+        // direction from spawn. Tall enough to see over the trees and work
+        // as a vantage point/waypoint.
+        private const float HillCenterX = -35f;
+        private const float HillCenterZ = -32f;
+        private const float HillRadius = 22f;
+        // Smaller than HillRadius on purpose: trees still grow on the
+        // slopes (that's what makes it look like a hill instead of a bald
+        // mound), just not right at the summit, so there's a clear payoff
+        // view once you've climbed it.
+        private const float HillPeakClearRadius = 8f;
+
         [MenuItem("Sandbox/Build Scaffolded Scene")]
         public static void Build()
         {
@@ -75,24 +89,19 @@ namespace Sandbox.EditorTools
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
             Material leafMaterial = CreateMaterial("Leaves", new Color(0.15f, 0.5f, 0.2f));
 
-            ApplyNoiseTexture(groundMaterial, "GrassNoise", new Color(0.3f, 0.55f, 0.25f), new Color(0.45f, 0.68f, 0.35f), 0.15f, 1.3f);
-            groundMaterial.mainTextureScale = new Vector2(24f, 24f);
+            ApplyImportedTexture(groundMaterial, "Grass001.jpg", new Vector2(20f, 20f));
             ApplyNoiseTexture(playerMaterial, "BodyNoise", new Color(0.2f, 0.5f, 0.9f), new Color(0.3f, 0.6f, 0.95f), 0.4f, 0.5f);
             ApplyNoiseTexture(playerHeadMaterial, "SkinNoise", new Color(0.9f, 0.75f, 0.6f), new Color(0.98f, 0.85f, 0.7f), 0.4f, 0.5f);
             // Solid white base color so the stripe colors show through unmodified
             // (albedo = mainTex * color); the texture itself carries the actual hues.
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
-            ApplyRockTexture(rockMaterial, "RockNoise", new Color(0.4f, 0.4f, 0.42f), new Color(0.62f, 0.62f, 0.65f), new Color(0.2f, 0.2f, 0.22f));
-            rockMaterial.mainTextureScale = new Vector2(2f, 2f);
-            ApplyWoodTexture(trunkMaterial, "WoodGrain", new Color(0.35f, 0.22f, 0.09f), new Color(0.5f, 0.32f, 0.15f));
-            // Default (1,1) tiling wraps the whole 64px texture around the
-            // trunk/canopy exactly once, so at normal camera distance the
-            // pattern reads as 2-3 soft blobs instead of visible detail --
-            // tile it several times like the ground texture does.
-            trunkMaterial.mainTextureScale = new Vector2(3f, 2f);
-            ApplyFoliageTexture(leafMaterial, "LeafNoise", new Color(0.12f, 0.46f, 0.17f), new Color(0.36f, 0.68f, 0.3f), new Color(0.03f, 0.16f, 0.06f));
-            leafMaterial.mainTextureScale = new Vector2(3f, 3f);
+            ApplyImportedTexture(rockMaterial, "Rock020.jpg", new Vector2(1f, 1f));
+            ApplyImportedTexture(trunkMaterial, "Bark001.jpg", new Vector2(1f, 1f));
+            trunkMaterial.SetFloat("_Glossiness", 0.15f); // matte bark, not glossy plastic
+            ApplyImportedTexture(leafMaterial, "LeafSprig.png", Vector2.one, hasAlpha: true);
+            SetMaterialCutout(leafMaterial);
+            leafMaterial.SetFloat("_Glossiness", 0.1f); // matte, not shiny plastic
 
             Material waterMaterial = CreateMaterial("Water", new Color(0.15f, 0.45f, 0.7f, 0.75f));
             ApplyWaterTexture(waterMaterial, "WaterRipple", new Color(0.1f, 0.35f, 0.6f, 0.75f), new Color(0.32f, 0.65f, 0.85f, 0.75f));
@@ -100,7 +109,7 @@ namespace Sandbox.EditorTools
             waterMaterial.SetFloat("_Glossiness", 0.85f);
             SetMaterialTransparent(waterMaterial);
 
-            Terrain terrain = CreateTerrain(groundMaterial);
+            Terrain terrain = CreateTerrain(groundMaterial.mainTexture as Texture2D, rockMaterial.mainTexture as Texture2D);
             CreateLake(waterMaterial);
 
             GameObject rockPrefab = CreateRockPrefab(rockMaterial);
@@ -197,6 +206,51 @@ namespace Sandbox.EditorTools
             return material;
         }
 
+        // Loads a real imported CC0 photo texture (see Assets/Textures/Imported/README.txt)
+        // and points the material at it -- white base color so the photo's
+        // own colors show through unmodified rather than getting multiplied
+        // by a tint meant for the old procedural noise texture.
+        private static void ApplyImportedTexture(Material material, string importedFileName, Vector2 tiling, bool hasAlpha = false)
+        {
+            string path = $"{TexturesFolder}/Imported/{importedFileName}";
+            var importer = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (importer != null)
+            {
+                importer.wrapMode = TextureWrapMode.Repeat;
+                importer.filterMode = FilterMode.Trilinear;
+                importer.anisoLevel = 9;
+                importer.mipmapEnabled = true;
+                if (hasAlpha)
+                    importer.alphaIsTransparency = true;
+                importer.SaveAndReimport();
+            }
+
+            Texture2D texture = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (texture == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing imported texture at {path}");
+                return;
+            }
+
+            material.color = Color.white;
+            material.mainTexture = texture;
+            material.mainTextureScale = tiling;
+        }
+
+        // Cutout (alpha-tested) so the transparent parts of a leaf-card
+        // texture are actually punched out rather than just faded, and
+        // double-sided since a flat foliage card needs to be visible from
+        // its back as well as its front.
+        private static void SetMaterialCutout(Material material)
+        {
+            material.SetFloat("_Mode", 1f);
+            material.SetFloat("_Cutoff", 0.5f);
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.DisableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 2450;
+        }
+
         // Standard shader defaults to opaque; this is the standard scripted
         // equivalent of picking "Transparent" in the Rendering Mode dropdown.
         private static void SetMaterialTransparent(Material material)
@@ -211,7 +265,7 @@ namespace Sandbox.EditorTools
             material.renderQueue = 3000;
         }
 
-        private const int TextureSize = 64;
+        private const int TextureSize = 256;
 
         // Layered Perlin octaves ("fractional Brownian motion") instead of a
         // single frequency -- reads as organic cloudy/mottled detail rather
@@ -239,7 +293,8 @@ namespace Sandbox.EditorTools
             {
                 name = name,
                 wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 9,
             };
 
             for (int y = 0; y < TextureSize; y++)
@@ -258,87 +313,6 @@ namespace Sandbox.EditorTools
             material.mainTexture = texture;
         }
 
-        private static void ApplyWoodTexture(Material material, string name, Color baseColor, Color grainColor)
-        {
-            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
-            {
-                name = name,
-                wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
-            };
-
-            Color crackColor = baseColor * 0.45f;
-
-            for (int y = 0; y < TextureSize; y++)
-            {
-                for (int x = 0; x < TextureSize; x++)
-                {
-                    // Vertical bark-like streaks: primarily varies across x (wraps
-                    // around the trunk's circumference), with a little Perlin
-                    // jitter so the streaks aren't perfectly straight.
-                    float jitter = Mathf.PerlinNoise(x * 0.05f, y * 0.2f) * 3f;
-                    float stripe = Mathf.Sin((x + jitter) * 0.8f) * 0.5f + 0.5f;
-                    Color pixel = Color.Lerp(baseColor, grainColor, stripe * 0.6f);
-
-                    // Fine roughness between streaks so bark doesn't read as
-                    // smooth stripes -- real bark is rough all over. Fbm gives
-                    // it an organic, uneven texture instead of a uniform grid
-                    // of bumps a single Perlin octave would produce.
-                    float roughness = Fbm(x * 0.3f, y * 0.3f, 3);
-                    pixel = Color.Lerp(pixel, grainColor, (roughness - 0.5f) * 0.35f);
-
-                    // Sparse thin dark cracks running with the grain.
-                    float crackNoise = Mathf.PerlinNoise(x * 0.06f + 50f, y * 0.9f);
-                    if (crackNoise > 0.75f)
-                        pixel = Color.Lerp(pixel, crackColor, Mathf.InverseLerp(0.75f, 0.92f, crackNoise));
-
-                    texture.SetPixel(x, y, pixel);
-                }
-            }
-            texture.Apply();
-
-            Directory.CreateDirectory(TexturesFolder);
-            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
-            material.mainTexture = texture;
-        }
-
-        // Mottled stone surface via fbm, plus a few thin angled mineral-vein
-        // cracks -- reads as weathered rock rather than a flat grey blob.
-        private static void ApplyRockTexture(Material material, string name, Color baseColor, Color varyColor, Color veinColor)
-        {
-            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
-            {
-                name = name,
-                wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
-            };
-
-            for (int y = 0; y < TextureSize; y++)
-            {
-                for (int x = 0; x < TextureSize; x++)
-                {
-                    float n = Fbm(x * 0.12f, y * 0.12f, 4);
-                    n = Mathf.Clamp01(0.5f + (n - 0.5f) * 1.5f);
-                    Color pixel = Color.Lerp(baseColor, varyColor, n);
-
-                    // Thin diagonal mineral veins: low-frequency noise near
-                    // its midpoint traces a wandering thin line instead of a
-                    // wide band.
-                    float veinNoise = Fbm(x * 0.05f + 30f, y * 0.05f - 40f, 2);
-                    float veinDist = Mathf.Abs(veinNoise - 0.5f);
-                    if (veinDist < 0.02f)
-                        pixel = Color.Lerp(pixel, veinColor, 1f - veinDist / 0.02f);
-
-                    texture.SetPixel(x, y, pixel);
-                }
-            }
-            texture.Apply();
-
-            Directory.CreateDirectory(TexturesFolder);
-            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
-            material.mainTexture = texture;
-        }
-
         // Fbm ripple pattern for subtle light/dark mottling; WaterAnimator
         // scrolls this material's UV offset at runtime for a simple flowing
         // shimmer without needing a custom shader.
@@ -348,7 +322,8 @@ namespace Sandbox.EditorTools
             {
                 name = name,
                 wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 9,
             };
 
             for (int y = 0; y < TextureSize; y++)
@@ -357,41 +332,14 @@ namespace Sandbox.EditorTools
                 {
                     float ripple = Fbm(x * 0.15f, y * 0.15f, 4);
                     float n = Mathf.Clamp01(0.5f + (ripple - 0.5f) * 1.3f);
-                    texture.SetPixel(x, y, Color.Lerp(baseColor, highlightColor, n));
-                }
-            }
-            texture.Apply();
+                    Color pixel = Color.Lerp(baseColor, highlightColor, n);
 
-            Directory.CreateDirectory(TexturesFolder);
-            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
-            material.mainTexture = texture;
-        }
-
-        // Leaves need to read as a canopy of many small clumps rather than a
-        // flat tinted gradient: large-scale noise carves out clump/shadow-gap
-        // shapes, fine noise adds a dappled speckle on top of each clump.
-        private static void ApplyFoliageTexture(Material material, string name, Color baseColor, Color varyColor, Color shadowColor)
-        {
-            var texture = new Texture2D(TextureSize, TextureSize, TextureFormat.RGBA32, true)
-            {
-                name = name,
-                wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
-            };
-
-            for (int y = 0; y < TextureSize; y++)
-            {
-                for (int x = 0; x < TextureSize; x++)
-                {
-                    float clumps = Fbm(x * 0.16f, y * 0.16f, 3);
-                    float speckle = Mathf.PerlinNoise(x * 0.7f + 100f, y * 0.7f + 100f);
-
-                    float n = Mathf.Clamp01(0.5f + (clumps * 0.7f + speckle * 0.3f - 0.5f) * 1.6f);
-                    Color pixel = Color.Lerp(baseColor, varyColor, n);
-
-                    // Deep shadow gaps where clump density is lowest.
-                    if (clumps < 0.35f)
-                        pixel = Color.Lerp(pixel, shadowColor, Mathf.InverseLerp(0.35f, 0.05f, clumps));
+                    // Small bright sun-glint specks: a finer, higher-frequency
+                    // noise layer thresholded to only its brightest peaks reads
+                    // as scattered light catching tiny wave facets.
+                    float glint = Fbm(x * 0.5f + 500f, y * 0.5f + 500f, 2);
+                    if (glint > 0.78f)
+                        pixel = Color.Lerp(pixel, Color.white, Mathf.InverseLerp(0.78f, 0.95f, glint) * 0.8f);
 
                     texture.SetPixel(x, y, pixel);
                 }
@@ -439,7 +387,8 @@ namespace Sandbox.EditorTools
             {
                 name = name,
                 wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 9,
             };
 
             for (int y = 0; y < TextureSize; y++)
@@ -469,14 +418,19 @@ namespace Sandbox.EditorTools
             material.mainTexture = texture;
         }
 
-        private static Terrain CreateTerrain(Material material)
+        private static Terrain CreateTerrain(Texture2D grassTexture, Texture2D rockTexture)
         {
             const int resolution = 129; // must be 2^n + 1
             const float worldSize = 120f;
-            const float maxHeight = 6f;
-            const float noiseScale = 0.045f;
+            const float maxHeight = 14f; // raised from 6 -- taller ambient hills, plus headroom for the landmark hill above them
+            const float noiseScale = 0.06f; // up from 0.045 -- more frequent, more varied undulation
             const float flatRadius = resolution * 0.14f;   // fully flat around spawn
             const float falloffRadius = resolution * 0.35f; // blends into full hills
+            // Ambient hills top out around 9 units (was ~6) -- noticeably
+            // hillier throughout, while still leaving clear separation from
+            // the landmark hill's ~13-unit peak so it still reads as the
+            // one distinct summit rather than blending into the background.
+            const float ambientHeightScale = 9f / maxHeight;
 
             var terrainData = new TerrainData
             {
@@ -488,7 +442,7 @@ namespace Sandbox.EditorTools
             float noiseOffsetX = 137.2f;
             float noiseOffsetZ = 291.7f;
 
-            // Lake constants are in world units; convert to the same
+            // Lake/hill constants are in world units; convert to the same
             // grid-index space the heightmap loop below works in.
             Vector2 lakeCenterGrid = new Vector2(
                 (LakeCenterX + worldSize / 2f) / worldSize * (resolution - 1),
@@ -496,15 +450,22 @@ namespace Sandbox.EditorTools
             float lakeRadiusGrid = LakeRadius / worldSize * (resolution - 1);
             float lakeBlendGrid = LakeShoreBlend / worldSize * (resolution - 1);
 
+            Vector2 hillCenterGrid = new Vector2(
+                (HillCenterX + worldSize / 2f) / worldSize * (resolution - 1),
+                (HillCenterZ + worldSize / 2f) / worldSize * (resolution - 1));
+            float hillRadiusGrid = HillRadius / worldSize * (resolution - 1);
+
             float[,] heights = new float[resolution, resolution];
             for (int z = 0; z < resolution; z++)
             {
                 for (int x = 0; x < resolution; x++)
                 {
-                    float noise = Mathf.PerlinNoise((x + noiseOffsetX) * noiseScale, (z + noiseOffsetZ) * noiseScale);
+                    // Fbm (layered octaves) instead of single-frequency Perlin --
+                    // reads as varied ridges/bumps rather than one smooth undulation.
+                    float noise = Fbm((x + noiseOffsetX) * noiseScale, (z + noiseOffsetZ) * noiseScale, 4);
                     float distFromCenter = Vector2.Distance(new Vector2(x, z), center);
                     float falloff = Mathf.Clamp01(Mathf.InverseLerp(flatRadius, falloffRadius, distFromCenter));
-                    float height = noise * falloff;
+                    float height = noise * falloff * ambientHeightScale;
 
                     // Carve a basin down to ground level for the lake bed,
                     // blending smoothly back to the ambient terrain height
@@ -516,22 +477,59 @@ namespace Sandbox.EditorTools
                         height = Mathf.Lerp(0f, height, t);
                     }
 
+                    // Hill landmark: a smooth (smoothstep) bump that reaches
+                    // near the full height range at its center -- much
+                    // taller than the ambient rolling hills, so it reads as
+                    // a distinct peak rather than just another bump.
+                    float distFromHill = Vector2.Distance(new Vector2(x, z), hillCenterGrid);
+                    if (distFromHill < hillRadiusGrid)
+                    {
+                        float t = 1f - distFromHill / hillRadiusGrid;
+                        float bump = t * t * (3f - 2f * t);
+                        height = Mathf.Max(height, bump * 0.92f);
+                    }
+
                     heights[z, x] = height;
                 }
             }
             terrainData.SetHeights(0, 0, heights);
 
+            // Two real terrain layers instead of one flat material: grass
+            // everywhere, with the rock photo texture blended in wherever
+            // the slope gets steep (hillsides, the lake basin's edge) --
+            // bare rock on a steep slope instead of grass reads as actual
+            // terrain rather than a painted green sheet.
+            var grassLayer = new TerrainLayer { diffuseTexture = grassTexture, tileSize = new Vector2(4f, 4f) };
+            var rockLayer = new TerrainLayer { diffuseTexture = rockTexture, tileSize = new Vector2(4f, 4f) };
             Directory.CreateDirectory(TerrainFolder);
+            AssetDatabase.CreateAsset(grassLayer, $"{TerrainFolder}/GrassLayer.terrainlayer");
+            AssetDatabase.CreateAsset(rockLayer, $"{TerrainFolder}/RockLayer.terrainlayer");
+            terrainData.terrainLayers = new[] { grassLayer, rockLayer };
+
+            const int alphaRes = 128;
+            terrainData.alphamapResolution = alphaRes;
+            float[,,] alphamap = new float[alphaRes, alphaRes, 2];
+            for (int ay = 0; ay < alphaRes; ay++)
+            {
+                for (int ax = 0; ax < alphaRes; ax++)
+                {
+                    float u = ax / (float)(alphaRes - 1);
+                    float v = ay / (float)(alphaRes - 1);
+                    float steepness = terrainData.GetSteepness(u, v); // degrees
+                    float rockWeight = Mathf.Clamp01(Mathf.InverseLerp(25f, 45f, steepness));
+                    alphamap[ay, ax, 0] = 1f - rockWeight;
+                    alphamap[ay, ax, 1] = rockWeight;
+                }
+            }
+            terrainData.SetAlphamaps(0, 0, alphamap);
+
             AssetDatabase.CreateAsset(terrainData, $"{TerrainFolder}/GroundTerrainData.asset");
 
             GameObject terrainGo = Terrain.CreateTerrainGameObject(terrainData);
             terrainGo.name = "Ground";
             terrainGo.transform.position = new Vector3(-worldSize / 2f, 0f, -worldSize / 2f);
 
-            Terrain terrain = terrainGo.GetComponent<Terrain>();
-            terrain.materialType = Terrain.MaterialType.Custom;
-            terrain.materialTemplate = material;
-            return terrain;
+            return terrainGo.GetComponent<Terrain>();
         }
 
         // A flattened cylinder gives a circular water surface for free,
@@ -548,6 +546,65 @@ namespace Sandbox.EditorTools
             water.transform.localScale = new Vector3(LakeRadius * 2f, 0.05f, LakeRadius * 2f);
             water.GetComponent<Renderer>().sharedMaterial = waterMaterial;
             water.AddComponent<WaterAnimator>();
+
+            CreateLakeSplashes();
+        }
+
+        // Small ring-shaped ripples that pop up at random points across the
+        // lake and fade out -- gives the surface a bit of ambient life
+        // instead of sitting perfectly still. HorizontalBillboard (not
+        // plain Billboard) keeps each ripple lying flat on the water no
+        // matter the camera angle, like a decal rather than a sprite
+        // facing the viewer.
+        private static void CreateLakeSplashes()
+        {
+            Texture2D glowTexture = CreateGlowTexture("SplashGlow");
+            Material splashMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Alpha Blended")) { name = "SplashParticle" };
+            splashMaterial.mainTexture = glowTexture;
+            Directory.CreateDirectory(MaterialsFolder);
+            AssetDatabase.CreateAsset(splashMaterial, $"{MaterialsFolder}/SplashParticle.mat");
+
+            // Not parented under the Lake cylinder: that object's transform
+            // is scaled by LakeRadius*2 to size the water disc, which would
+            // also scale up the particle shape's radius below if this were
+            // a child of it.
+            GameObject splashGo = new GameObject("LakeSplashes");
+            splashGo.transform.position = new Vector3(LakeCenterX, LakeSurfaceY + 0.02f, LakeCenterZ);
+            splashGo.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+
+            ParticleSystem splashes = splashGo.AddComponent<ParticleSystem>();
+            var main = splashes.main;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.2f, 2f);
+            main.startSpeed = 0f;
+            main.startSize = new ParticleSystem.MinMaxCurve(0.3f, 0.7f);
+            main.startColor = new Color(1f, 1f, 1f, 0.6f);
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.maxParticles = 20;
+
+            var emission = splashes.emission;
+            emission.rateOverTime = 1.5f; // sparse -- a handful visible on the lake at once
+
+            var shape = splashes.shape;
+            shape.shapeType = ParticleSystemShapeType.Circle;
+            shape.radius = LakeRadius * 0.85f; // stay shy of the shore
+            shape.radiusThickness = 1f; // fill the whole disc, not just the rim
+
+            var sizeOverLifetime = splashes.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.3f, 1f, 1f)); // ripple expanding outward
+
+            var colorOverLifetime = splashes.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var gradient = new Gradient();
+            gradient.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(0.7f, 0f), new GradientAlphaKey(0.5f, 0.3f), new GradientAlphaKey(0f, 1f) });
+            colorOverLifetime.color = gradient;
+
+            ParticleSystemRenderer renderer = splashGo.GetComponent<ParticleSystemRenderer>();
+            renderer.material = splashMaterial;
+            renderer.renderMode = ParticleSystemRenderMode.HorizontalBillboard;
         }
 
         // A simple jump-platform course ending in a distinct gold finish
@@ -580,6 +637,12 @@ namespace Sandbox.EditorTools
             Vector3 startPos = new Vector3(CourseStartX + radius, baseY + 0.5f, CourseStartZ);
             CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], startPos, new Vector3(3f, 1f, 3f), startColor);
 
+            // Every step's position gets kept around so a couple of the gaps
+            // can be bridged with a walk-across obstacle afterward instead
+            // of just another jump.
+            var stepPositions = new Vector3[climbSteps + 1];
+            stepPositions[0] = startPos;
+
             for (int i = 1; i <= climbSteps; i++)
             {
                 float angleRad = i * angleStepDegrees * Mathf.Deg2Rad;
@@ -588,6 +651,7 @@ namespace Sandbox.EditorTools
                     baseY + 0.5f + i * heightStep,
                     CourseStartZ + radius * Mathf.Sin(angleRad));
                 CreateCoursePlatform(courseRoot.transform, blockPrefabs[shapes[(i - 1) % shapes.Length]], pos, Vector3.one, climbColor);
+                stepPositions[i] = pos;
             }
 
             // Finish platform: continues the spiral one more step, big and
@@ -599,6 +663,40 @@ namespace Sandbox.EditorTools
                 finishHeight,
                 CourseStartZ + radius * Mathf.Sin(finishAngle));
             CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], finishPos, new Vector3(3.5f, 1f, 3.5f), finishColor);
+
+            // A narrow plank and a tilting seesaw bridge two of the jump
+            // gaps partway up the climb -- walkable instead of jumpable,
+            // for obstacle variety rather than just more jumps.
+            Color skinnyColor = new Color(0.55f, 0.35f, 0.15f);
+            Color teeterColor = new Color(0.6f, 0.4f, 0.2f);
+            CreateSkinnyBeam(courseRoot.transform, blockPrefabs[0], stepPositions[3], stepPositions[4], skinnyColor);
+            CreateTeeterTotter(courseRoot.transform, blockPrefabs[0], stepPositions[7], stepPositions[8], teeterColor);
+
+            // Timer: starts when the player steps onto the start platform,
+            // stops when they press the red button waiting on the finish
+            // platform.
+            ObstacleCourseTimer timer = BuildObstacleCourseTimerUI();
+
+            GameObject startTriggerGo = new GameObject("CourseStartTrigger");
+            startTriggerGo.transform.SetParent(courseRoot.transform, false);
+            startTriggerGo.transform.position = startPos;
+            BoxCollider startTriggerCollider = startTriggerGo.AddComponent<BoxCollider>();
+            startTriggerCollider.isTrigger = true;
+            startTriggerCollider.size = new Vector3(3f, 2f, 3f);
+            CourseStartTrigger startTrigger = startTriggerGo.AddComponent<CourseStartTrigger>();
+            SetPrivateField(startTrigger, "timer", timer);
+
+            GameObject buttonGo = Object.Instantiate(blockPrefabs[2], finishPos + new Vector3(0f, 0.65f, 0f), Quaternion.identity, courseRoot.transform);
+            buttonGo.name = "TimerButton";
+            buttonGo.transform.localScale = new Vector3(0.6f, 0.15f, 0.6f);
+            Renderer buttonRenderer = buttonGo.GetComponent<Renderer>();
+            if (buttonRenderer != null)
+                buttonRenderer.material.color = new Color(0.85f, 0.1f, 0.1f);
+            Collider buttonCollider = buttonGo.GetComponent<Collider>();
+            if (buttonCollider != null)
+                buttonCollider.isTrigger = true;
+            CourseFinishButton finishButton = buttonGo.AddComponent<CourseFinishButton>();
+            SetPrivateField(finishButton, "timer", timer);
 
             // Fence ring at a radius clear of the platforms but inside the
             // no-build zone, so the visible boundary and the actual
@@ -621,6 +719,85 @@ namespace Sandbox.EditorTools
             zoneCollider.radius = zoneRadius;
             zoneCollider.height = totalHeight + 8f;
             zoneGo.AddComponent<NoBuildZone>();
+        }
+
+        // A narrow plank bridging two course steps -- no jump needed, but
+        // the width leaves little margin for error walking across.
+        private static void CreateSkinnyBeam(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color)
+        {
+            Vector3 mid = (pointA + pointB) / 2f;
+            Vector3 direction = pointB - pointA;
+            float length = direction.magnitude;
+
+            GameObject beam = Object.Instantiate(cubePrefab, mid, Quaternion.FromToRotation(Vector3.right, direction.normalized), parent);
+            beam.name = "SkinnyBeam";
+            beam.transform.localScale = new Vector3(length, 0.3f, 0.5f);
+            Renderer renderer = beam.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+        }
+
+        // A seesaw plank pivoting at its midpoint between two course steps
+        // -- TeeterTotter.cs tilts it at runtime toward whichever end the
+        // player is standing closer to.
+        private static void CreateTeeterTotter(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color)
+        {
+            Vector3 mid = (pointA + pointB) / 2f;
+            Vector3 direction = pointB - pointA;
+            float length = direction.magnitude;
+
+            GameObject pivot = new GameObject("TeeterTotter");
+            pivot.transform.SetParent(parent, false);
+            pivot.transform.position = mid;
+            pivot.transform.rotation = Quaternion.FromToRotation(Vector3.right, direction.normalized);
+
+            GameObject beam = Object.Instantiate(cubePrefab, pivot.transform);
+            beam.name = "Plank";
+            beam.transform.localPosition = Vector3.zero;
+            beam.transform.localRotation = Quaternion.identity;
+            beam.transform.localScale = new Vector3(length, 0.3f, 0.5f);
+            Renderer renderer = beam.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+
+            TeeterTotter teeter = pivot.AddComponent<TeeterTotter>();
+            SetPrivateField(teeter, "halfLength", length / 2f);
+        }
+
+        // Screen-space timer readout for the obstacle course -- its own
+        // small canvas since it's purely a display, no interaction, so it
+        // doesn't need a GraphicRaycaster/EventSystem the way the palette
+        // and mobile control canvases do.
+        private static ObstacleCourseTimer BuildObstacleCourseTimerUI()
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            GameObject canvasGo = new GameObject("CourseTimerUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            GameObject textGo = new GameObject("TimerText");
+            textGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform textRect = textGo.AddComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0.5f, 1f);
+            textRect.anchorMax = new Vector2(0.5f, 1f);
+            textRect.pivot = new Vector2(0.5f, 1f);
+            textRect.sizeDelta = new Vector2(400f, 50f);
+            textRect.anchoredPosition = new Vector2(0f, -20f);
+
+            Text text = textGo.AddComponent<Text>();
+            text.font = font;
+            text.fontSize = 28;
+            text.alignment = TextAnchor.MiddleCenter;
+            text.color = Color.white;
+            text.text = string.Empty;
+
+            ObstacleCourseTimer timer = canvasGo.AddComponent<ObstacleCourseTimer>();
+            SetPrivateField(timer, "displayText", text);
+            return timer;
         }
 
         // A ring of alternating red/white posts with connecting rails around
@@ -720,10 +897,14 @@ namespace Sandbox.EditorTools
 
             GameObject flame = new GameObject("Flame");
             flame.transform.SetParent(parent, false);
-            flame.transform.localPosition = new Vector3(0f, 0.35f, 0f);
+            flame.transform.localPosition = new Vector3(0f, 0.1f, 0f);
 
-            CreateFlameBlob(flame.transform, fireGlowMaterial, "FlameOuter", new Vector3(0f, 0f, 0f), 0.5f);
-            CreateFlameBlob(flame.transform, fireGlowMaterial, "FlameInner", new Vector3(0f, 0.18f, 0f), 0.28f);
+            // Small squashed glow at the base, mostly tucked among the logs
+            // -- keeps a warm coal-like glow visible even at moments the
+            // sparser particles above thin out.
+            CreateFlameBlob(flame.transform, fireGlowMaterial, "Embers", new Vector3(0f, 0.03f, 0f), 0.2f);
+
+            CreateFireParticles(flame.transform);
 
             Light fireLight = flame.AddComponent<Light>();
             fireLight.type = LightType.Point;
@@ -731,6 +912,209 @@ namespace Sandbox.EditorTools
             fireLight.intensity = 2.5f;
             fireLight.range = 9f;
             flame.AddComponent<FireFlicker>();
+        }
+
+        // A real particle flame reads far better than static stretched
+        // spheres: licking, randomized shapes with a proper yellow-white ->
+        // orange -> red-and-fading color ramp, plus sparse rising smoke on
+        // top for extra realism.
+        private static void CreateFireParticles(Transform parent)
+        {
+            // A real flame-shaped alpha mask (tapered, wavy-edged silhouette)
+            // instead of a plain soft circle -- a stretched circle reads as
+            // a spark/streak, not a flame, no matter how it's sized.
+            Texture2D flameTexture = CreateFlameTexture("FireFlameShape");
+
+            Material flameParticleMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Additive")) { name = "FireParticle" };
+            flameParticleMaterial.mainTexture = flameTexture;
+            Directory.CreateDirectory(MaterialsFolder);
+            AssetDatabase.CreateAsset(flameParticleMaterial, $"{MaterialsFolder}/FireParticle.mat");
+
+            GameObject flameGo = new GameObject("FireParticles");
+            flameGo.transform.SetParent(parent, false);
+
+            ParticleSystem flame = flameGo.AddComponent<ParticleSystem>();
+            var main = flame.main;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(0.45f, 0.75f);
+            // Low speed on purpose -- each particle already looks like a
+            // flame lick by itself now, so the flicker should come from
+            // overlapping/rotating/rescaling shapes near the logs, not from
+            // particles traveling far and spreading thin.
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.7f, 1.2f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.55f, 0.95f);
+            main.startRotation = new ParticleSystem.MinMaxCurve(-25f * Mathf.Deg2Rad, 25f * Mathf.Deg2Rad);
+            main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.9f, 0.5f), new Color(1f, 0.55f, 0.15f));
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.maxParticles = 60;
+
+            var emission = flame.emission;
+            emission.rateOverTime = 22f;
+
+            var shape = flame.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 6f;
+            shape.radius = 0.2f;
+
+            var colorOverLifetime = flame.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var flameGradient = new Gradient();
+            flameGradient.SetKeys(
+                new[]
+                {
+                    new GradientColorKey(new Color(1f, 0.95f, 0.6f), 0f),
+                    new GradientColorKey(new Color(1f, 0.5f, 0.1f), 0.5f),
+                    new GradientColorKey(new Color(0.6f, 0.1f, 0.05f), 1f),
+                },
+                new[]
+                {
+                    new GradientAlphaKey(1f, 0f),
+                    new GradientAlphaKey(1f, 0.5f),
+                    new GradientAlphaKey(0f, 1f),
+                });
+            colorOverLifetime.color = flameGradient;
+
+            var sizeOverLifetime = flame.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.85f, 1f, 0.2f));
+
+            // Continuous rotation plus turbulence -- together these make
+            // each flame shape twist and waver instead of just rising as a
+            // rigid billboard.
+            var rotationOverLifetime = flame.rotationOverLifetime;
+            rotationOverLifetime.enabled = true;
+            rotationOverLifetime.z = new ParticleSystem.MinMaxCurve(-45f * Mathf.Deg2Rad, 45f * Mathf.Deg2Rad);
+
+            var noise = flame.noise;
+            noise.enabled = true;
+            noise.strength = 0.25f;
+            noise.frequency = 0.6f;
+
+            ParticleSystemRenderer flameRenderer = flameGo.GetComponent<ParticleSystemRenderer>();
+            flameRenderer.material = flameParticleMaterial;
+            flameRenderer.renderMode = ParticleSystemRenderMode.Billboard;
+
+            BuildSmoke(parent);
+        }
+
+        // Flame silhouette: a single sine hump gives the classic "wide
+        // through the middle, pinched at the base, pointed at the tip"
+        // candle-flame profile; per-pixel fbm noise perturbs the edge so it
+        // reads as organic rather than a stamped-out teardrop.
+        private static Texture2D CreateFlameTexture(string name)
+        {
+            const int width = 48;
+            const int height = 64;
+            var texture = new Texture2D(width, height, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            for (int y = 0; y < height; y++)
+            {
+                float h = y / (float)(height - 1); // 0 at the base, 1 at the tip
+                float widthFactor = Mathf.Max(0f, Mathf.Sin(Mathf.Pow(h, 0.6f) * Mathf.PI) * (1f - h * 0.15f));
+
+                for (int x = 0; x < width; x++)
+                {
+                    float dx = (x - width / 2f + 0.5f) / (width / 2f); // -1..1
+                    float edgeNoise = Fbm(x * 0.15f, y * 0.15f + 100f, 3);
+                    float jitteredWidth = widthFactor * (0.75f + edgeNoise * 0.5f);
+
+                    float edge = jitteredWidth - Mathf.Abs(dx);
+                    float alpha = Mathf.Clamp01(edge / 0.12f);
+                    alpha *= Mathf.Clamp01(1.15f - h); // extra soft fade right at the tip
+
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            return texture;
+        }
+
+        // Sparse, slow, and mostly transparent -- meant to be noticed
+        // rather than stared at, like real campfire smoke.
+        private static void BuildSmoke(Transform parent)
+        {
+            Texture2D glowTexture = CreateGlowTexture("SmokeGlowParticle");
+            Material smokeMaterial = new Material(Shader.Find("Legacy Shaders/Particles/Alpha Blended")) { name = "SmokeParticle" };
+            smokeMaterial.mainTexture = glowTexture;
+            Directory.CreateDirectory(MaterialsFolder);
+            AssetDatabase.CreateAsset(smokeMaterial, $"{MaterialsFolder}/SmokeParticle.mat");
+
+            GameObject smokeGo = new GameObject("Smoke");
+            smokeGo.transform.SetParent(parent, false);
+            smokeGo.transform.localPosition = new Vector3(0f, 0.5f, 0f);
+
+            ParticleSystem smoke = smokeGo.AddComponent<ParticleSystem>();
+            var main = smoke.main;
+            main.loop = true;
+            main.startLifetime = new ParticleSystem.MinMaxCurve(1.8f, 2.6f);
+            main.startSpeed = new ParticleSystem.MinMaxCurve(0.4f, 0.7f);
+            main.startSize = new ParticleSystem.MinMaxCurve(0.4f, 0.8f);
+            main.startColor = new Color(0.3f, 0.3f, 0.3f, 0.35f);
+            main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            main.maxParticles = 30;
+
+            var emission = smoke.emission;
+            emission.rateOverTime = 4f;
+
+            var shape = smoke.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 15f;
+            shape.radius = 0.18f;
+
+            var colorOverLifetime = smoke.colorOverLifetime;
+            colorOverLifetime.enabled = true;
+            var smokeGradient = new Gradient();
+            smokeGradient.SetKeys(
+                new[] { new GradientColorKey(Color.gray, 0f), new GradientColorKey(Color.gray, 1f) },
+                new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(0.25f, 0.3f), new GradientAlphaKey(0f, 1f) });
+            colorOverLifetime.color = smokeGradient;
+
+            var sizeOverLifetime = smoke.sizeOverLifetime;
+            sizeOverLifetime.enabled = true;
+            sizeOverLifetime.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0f, 0.5f, 1f, 1.5f));
+
+            ParticleSystemRenderer smokeRenderer = smokeGo.GetComponent<ParticleSystemRenderer>();
+            smokeRenderer.material = smokeMaterial;
+            smokeRenderer.alignment = ParticleSystemRenderSpace.View;
+        }
+
+        // White with a soft radial falloff baked into alpha -- works both as
+        // an additive glow sprite (alpha modulates brightness) and as a
+        // plain soft circle for alpha-blended smoke.
+        private static Texture2D CreateGlowTexture(string name)
+        {
+            const int size = 32;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            Vector2 center = new Vector2(size / 2f, size / 2f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dist = Vector2.Distance(new Vector2(x + 0.5f, y + 0.5f), center) / (size / 2f);
+                    float falloff = Mathf.Clamp01(1f - dist);
+                    falloff *= falloff;
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, falloff));
+                }
+            }
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            return texture;
         }
 
         // FromToRotation on the cylinder's default up axis both aims and lays
@@ -753,16 +1137,16 @@ namespace Sandbox.EditorTools
             log.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        // Stretched vertically so it reads as a flame lick rather than a
-        // ball; no collider since it's purely a visual, not something to
-        // bump into or that should block block-placement raycasts.
+        // Squashed flat rather than stretched -- a bed of embers glowing
+        // among the logs, not a flame shape (the particles above handle
+        // that). No collider since it's purely visual.
         private static void CreateFlameBlob(Transform parent, Material material, string name, Vector3 localPosition, float scale)
         {
             GameObject blob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             blob.name = name;
             blob.transform.SetParent(parent, false);
             blob.transform.localPosition = localPosition;
-            blob.transform.localScale = new Vector3(scale, scale * 1.4f, scale);
+            blob.transform.localScale = new Vector3(scale, scale * 0.4f, scale);
             Object.DestroyImmediate(blob.GetComponent<Collider>());
             blob.GetComponent<Renderer>().sharedMaterial = material;
         }
@@ -835,13 +1219,16 @@ namespace Sandbox.EditorTools
             CreateTrunkSegment(root.transform, trunkMaterial, "TrunkLower", localY: 0.55f, height: 0.55f, diameter: 0.34f);
             CreateTrunkSegment(root.transform, trunkMaterial, "TrunkUpper", localY: 1.6f, height: 0.5f, diameter: 0.22f);
 
-            // A single sphere reads as a lollipop; clustering a few
-            // differently-sized, off-center spheres breaks up the silhouette
-            // into something closer to an actual leaf canopy.
-            CreateCanopyBlob(root.transform, leafMaterial, "LeavesCenter", new Vector3(0f, 2.7f, 0f), 1.3f);
-            CreateCanopyBlob(root.transform, leafMaterial, "LeavesLeft", new Vector3(-0.5f, 2.35f, 0.35f), 0.95f);
-            CreateCanopyBlob(root.transform, leafMaterial, "LeavesRight", new Vector3(0.45f, 2.4f, -0.4f), 0.9f);
-            CreateCanopyBlob(root.transform, leafMaterial, "LeavesTop", new Vector3(0.1f, 3.05f, -0.15f), 0.75f);
+            // Solid spheres read as balloons no matter what texture sits on
+            // them -- a photo silhouette needs to be cut out of a flat card
+            // instead. Each cluster below is 3 alpha-cutout cards crossed
+            // 60 degrees apart so it reads as foliage (not a flat cutout)
+            // from any viewing angle -- the standard "billboard tree"
+            // technique.
+            CreateFoliageCluster(root.transform, leafMaterial, "FoliageCenter", new Vector3(0f, 2.7f, 0f), 1.7f);
+            CreateFoliageCluster(root.transform, leafMaterial, "FoliageLeft", new Vector3(-0.55f, 2.3f, 0.3f), 1.2f);
+            CreateFoliageCluster(root.transform, leafMaterial, "FoliageRight", new Vector3(0.5f, 2.35f, -0.4f), 1.15f);
+            CreateFoliageCluster(root.transform, leafMaterial, "FoliageTop", new Vector3(0.1f, 3.1f, -0.1f), 0.95f);
 
             Directory.CreateDirectory(PrefabsFolder);
             string path = $"{PrefabsFolder}/Tree.prefab";
@@ -862,14 +1249,33 @@ namespace Sandbox.EditorTools
             segment.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        private static void CreateCanopyBlob(Transform parent, Material material, string name, Vector3 localPosition, float scale)
+        // Alpha-cutout quads crossed 60 degrees apart around Y, all showing
+        // the same leaf-sprig cutout -- from any angle at least one card is
+        // close to face-on, so it reads as a solid clump of foliage rather
+        // than a flat cardboard cutout. No collider: walking through
+        // foliage is expected, and a thin quad collider would be an odd
+        // shape to snag on anyway.
+        private static void CreateFoliageCluster(Transform parent, Material material, string name, Vector3 localPosition, float scale)
         {
-            GameObject blob = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            blob.name = name;
-            blob.transform.SetParent(parent, false);
-            blob.transform.localPosition = localPosition;
-            blob.transform.localScale = new Vector3(scale, scale, scale);
-            blob.GetComponent<Renderer>().sharedMaterial = material;
+            GameObject cluster = new GameObject(name);
+            cluster.transform.SetParent(parent, false);
+            cluster.transform.localPosition = localPosition;
+
+            // 6, not 3: Standard's shader hardcodes backface culling with no
+            // material property to override it, so each of the 3 planes
+            // needs a second copy rotated 180 degrees to actually have a
+            // front face pointing the other way -- geometry, not a shader
+            // flag, is what makes these visible from behind.
+            for (int i = 0; i < 6; i++)
+            {
+                GameObject card = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                card.name = $"Card{i}";
+                card.transform.SetParent(cluster.transform, false);
+                card.transform.localRotation = Quaternion.Euler(0f, i * 60f, 0f);
+                card.transform.localScale = new Vector3(scale, scale, scale);
+                card.GetComponent<Renderer>().sharedMaterial = material;
+                Object.DestroyImmediate(card.GetComponent<Collider>());
+            }
         }
 
         private static void ScatterEnvironmentProps(Terrain terrain, GameObject treePrefab, GameObject rockPrefab)
@@ -879,16 +1285,17 @@ namespace Sandbox.EditorTools
 
             GameObject environment = new GameObject("Environment");
 
-            ScatterProps(environment.transform, treePrefab, 40, worldSize, clearRadius, terrain, 0.8f, 1.3f);
+            ScatterProps(environment.transform, treePrefab, 40, worldSize, clearRadius, terrain, 0.8f, 1.3f, tintFoliage: true);
             ScatterProps(environment.transform, rockPrefab, 50, worldSize, clearRadius, terrain, 0.5f, 1.2f);
         }
 
-        private static void ScatterProps(Transform parent, GameObject prefab, int count, float worldSize, float clearRadius, Terrain terrain, float minScale, float maxScale)
+        private static void ScatterProps(Transform parent, GameObject prefab, int count, float worldSize, float clearRadius, Terrain terrain, float minScale, float maxScale, bool tintFoliage = false)
         {
             Vector2 lakeCenter = new Vector2(LakeCenterX, LakeCenterZ);
             float lakeExclusionRadius = LakeRadius + LakeShoreBlend + 2f; // keep props off the shore, not just out of the water
             Vector2 courseCenter = new Vector2(CourseStartX, CourseStartZ);
             Vector2 storyCenter = new Vector2(StoryPlaceX, StoryPlaceZ);
+            Vector2 hillCenter = new Vector2(HillCenterX, HillCenterZ);
 
             for (int i = 0; i < count; i++)
             {
@@ -900,12 +1307,41 @@ namespace Sandbox.EditorTools
                 } while (new Vector2(x, z).magnitude < clearRadius
                     || Vector2.Distance(new Vector2(x, z), lakeCenter) < lakeExclusionRadius
                     || Vector2.Distance(new Vector2(x, z), courseCenter) < CourseExclusionRadius
-                    || Vector2.Distance(new Vector2(x, z), storyCenter) < StoryPlaceExclusionRadius);
+                    || Vector2.Distance(new Vector2(x, z), storyCenter) < StoryPlaceExclusionRadius
+                    || Vector2.Distance(new Vector2(x, z), hillCenter) < HillPeakClearRadius);
 
                 float y = terrain.SampleHeight(new Vector3(x, 0f, z));
                 Quaternion rotation = Quaternion.Euler(0f, UnityEngine.Random.Range(0f, 360f), 0f);
                 GameObject instance = Object.Instantiate(prefab, new Vector3(x, y, z), rotation, parent);
                 instance.transform.localScale *= UnityEngine.Random.Range(minScale, maxScale);
+
+                if (tintFoliage)
+                    TintFoliageChildren(instance.transform);
+            }
+        }
+
+        // Subtle per-tree hue/brightness jitter on the canopy so a scattered
+        // forest of identical prefab instances doesn't read as a single tree
+        // stamped out forty times -- each renderer gets its own material
+        // instance (via .material, not .sharedMaterial) so this only ever
+        // affects this one tree.
+        private static void TintFoliageChildren(Transform root)
+        {
+            float hueShift = UnityEngine.Random.Range(-0.04f, 0.04f);
+            float brightness = UnityEngine.Random.Range(0.85f, 1.15f);
+
+            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (!child.name.StartsWith("Card"))
+                    continue;
+
+                Renderer renderer = child.GetComponent<Renderer>();
+                if (renderer == null)
+                    continue;
+
+                Color.RGBToHSV(renderer.material.color, out float h, out float s, out float v);
+                h = Mathf.Repeat(h + hueShift, 1f);
+                renderer.material.color = Color.HSVToRGB(h, s, v) * brightness;
             }
         }
 
