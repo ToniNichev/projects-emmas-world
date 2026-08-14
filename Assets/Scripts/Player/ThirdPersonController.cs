@@ -12,7 +12,7 @@ namespace Sandbox.Player
         [SerializeField] private float sprintSpeed = 10f;
         [SerializeField] private float jumpHeight = 1.5f;
         [SerializeField] private float gravity = -18f;
-        [SerializeField] private Transform cameraTransform;
+        [SerializeField] private float turnSpeed = 180f;
         [SerializeField] private InputActionAsset actions;
         [SerializeField] private string actionMapName = "Player";
         [SerializeField] private float footstepInterval = 0.35f;
@@ -36,15 +36,16 @@ namespace Sandbox.Player
             ? Vector2.ClampMagnitude(moveInput + moveJoystick.Value, 1f)
             : moveInput;
 
-        public bool IsMoving => CombinedMoveInput.sqrMagnitude > 0.01f;
+        // Only the forward/back axis counts as "moving" -- turning in place
+        // (left/right with no forward/back held) shouldn't trigger footsteps
+        // or arm/leg swing since the character isn't actually translating.
+        public bool IsMoving => Mathf.Abs(CombinedMoveInput.y) > 0.01f;
         public bool IsSprinting => sprintHeld;
 
         private void Awake()
         {
             controller = GetComponent<CharacterController>();
             soundEffects = GetComponent<SoundEffects>();
-            if (cameraTransform == null && Camera.main != null)
-                cameraTransform = Camera.main.transform;
 
             InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
             moveAction = map.FindAction("Move", throwIfNotFound: true);
@@ -123,7 +124,7 @@ namespace Sandbox.Player
         {
             // Gated on movement input rather than controller.isGrounded, which is
             // notoriously unreliable at rest even while standing on flat ground.
-            if (CombinedMoveInput.sqrMagnitude < 0.01f)
+            if (!IsMoving)
             {
                 footstepTimer = 0f;
                 return;
@@ -137,42 +138,22 @@ namespace Sandbox.Player
             }
         }
 
+        // Tank-style controls: left/right turns the character in place and
+        // never moves it; forward/back always walks along whatever direction
+        // it's currently facing and never changes its heading. The two axes
+        // are independent, unlike the earlier camera-relative scheme where
+        // any forward/back press snapped the character's facing to match
+        // the camera.
         private void ApplyMovement()
         {
             Vector2 combinedInput = CombinedMoveInput;
-            Vector3 inputDir = new Vector3(combinedInput.x, 0f, combinedInput.y);
-            // CombinedMoveInput is already clamped to magnitude 1, so this is
-            // how far the stick/keys are actually pushed, 0..1.
-            float inputMagnitude = inputDir.magnitude;
-            if (inputMagnitude < 0.0001f)
-            {
-                controller.Move(verticalVelocity * Time.deltaTime);
-                return;
-            }
 
-            Vector3 forward = cameraTransform != null ? cameraTransform.forward : Vector3.forward;
-            Vector3 right = cameraTransform != null ? cameraTransform.right : Vector3.right;
-            forward.y = 0f;
-            right.y = 0f;
-            forward.Normalize();
-            right.Normalize();
+            if (Mathf.Abs(combinedInput.x) > 0.0001f)
+                transform.Rotate(Vector3.up, combinedInput.x * turnSpeed * Time.deltaTime);
 
-            // .normalized here is for DIRECTION only -- speed is scaled by
-            // inputMagnitude separately below. Without that separation, any
-            // non-zero input (even a stray value from a finger not landing
-            // pixel-perfect on the joystick's center) snapped straight to
-            // full speed, since normalizing the direction also discarded how
-            // far the stick was actually pushed.
-            Vector3 moveDir = (forward * inputDir.z + right * inputDir.x).normalized;
-            float speed = (sprintHeld ? sprintSpeed : moveSpeed) * inputMagnitude;
-
-            // Face the movement direction immediately (Roblox-style) rather
-            // than easing into it -- a smoothed turn made the avatar visibly
-            // spin in place before walking whenever it wasn't already facing
-            // where the camera-relative input pointed.
-            transform.rotation = Quaternion.LookRotation(moveDir, Vector3.up);
-
-            Vector3 motion = moveDir * speed + verticalVelocity;
+            float forwardAmount = Mathf.Clamp(combinedInput.y, -1f, 1f);
+            float speed = (sprintHeld ? sprintSpeed : moveSpeed) * Mathf.Abs(forwardAmount);
+            Vector3 motion = transform.forward * forwardAmount * speed + verticalVelocity;
             controller.Move(motion * Time.deltaTime);
         }
     }
