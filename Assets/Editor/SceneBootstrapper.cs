@@ -90,6 +90,7 @@ namespace Sandbox.EditorTools
             Material playerMaterial = CreateMaterial("Player", new Color(0.25f, 0.55f, 0.95f));
             Material playerHeadMaterial = CreateMaterial("PlayerHead", new Color(0.95f, 0.8f, 0.65f));
             Material shirtMaterial = CreateMaterial("Shirt", Color.white);
+            Material shoeMaterial = CreateMaterial("Shoes", new Color(0.15f, 0.15f, 0.18f));
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
@@ -97,10 +98,14 @@ namespace Sandbox.EditorTools
 
             ApplyImportedTexture(groundMaterial, "Grass001.jpg", new Vector2(20f, 20f));
             ApplyNoiseTexture(playerMaterial, "BodyNoise", new Color(0.2f, 0.5f, 0.9f), new Color(0.3f, 0.6f, 0.95f), 0.4f, 0.5f);
+            playerMaterial.SetFloat("_Glossiness", 0.2f); // matte cloth, not shiny plastic
             ApplyNoiseTexture(playerHeadMaterial, "SkinNoise", new Color(0.9f, 0.75f, 0.6f), new Color(0.98f, 0.85f, 0.7f), 0.4f, 0.5f);
+            playerHeadMaterial.SetFloat("_Glossiness", 0.25f); // matte skin, not shiny plastic
             // Solid white base color so the stripe colors show through unmodified
             // (albedo = mainTex * color); the texture itself carries the actual hues.
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
+            shirtMaterial.SetFloat("_Glossiness", 0.2f); // matte cloth, not shiny plastic
+            shoeMaterial.SetFloat("_Glossiness", 0.3f);
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyImportedTexture(rockMaterial, "Rock020.jpg", new Vector2(1f, 1f));
             ApplyImportedTexture(trunkMaterial, "Bark001.jpg", new Vector2(1f, 1f));
@@ -140,9 +145,9 @@ namespace Sandbox.EditorTools
             fireGlowMaterial.SetColor("_EmissionColor", new Color(1f, 0.45f, 0.1f) * 2.5f);
             BuildStorytalePlace(terrain, trunkMaterial, rockMaterial, fireGlowMaterial);
 
-            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial);
+            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial);
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, remoteAvatarPrefab);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, remoteAvatarPrefab);
             OrbitCameraDragController cameraController = BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
             BuildEventSystem();
@@ -1993,7 +1998,7 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, GameObject remoteAvatarPrefab)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, GameObject remoteAvatarPrefab)
         {
             // Root holds collision only (CharacterController); the visible blocky
             // humanoid lives under a child "Avatar" transform so the two can vary
@@ -2008,7 +2013,7 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial);
+            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial);
 
             AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
             SetPrivateField(customization, "shirtRenderers", new[]
@@ -2069,7 +2074,7 @@ namespace Sandbox.EditorTools
             return player;
         }
 
-        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial)
+        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial)
         {
             // Positions/sizes are in the root's local space, which is centered on
             // the CharacterController (center=(0,0,0), height=2) -- so this spans
@@ -2092,13 +2097,22 @@ namespace Sandbox.EditorTools
             CreateLimb(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
             CreateLimb(avatar.transform, "RightLeg", new Vector3(0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
 
+            // Shoes: distinct dark blocks at the foot, parented to the leg
+            // pivots (not the avatar root) so they swing with
+            // AvatarAnimator's walk cycle instead of floating in place.
+            // Position is in the pivot's own local space: the leg hangs
+            // from y=0 down to y=-0.9 under its pivot, so the foot sits
+            // right around y=-0.87 to -0.9.
+            CreateBodyPart(avatar.transform.Find("LeftLegPivot"), "LeftShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
+            CreateBodyPart(avatar.transform.Find("RightLegPivot"), "RightShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
+
             return avatar;
         }
 
-        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial)
+        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial)
         {
             GameObject temp = new GameObject("RemoteAvatarRoot");
-            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial);
+            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial);
             avatar.transform.SetParent(null, true);
             Object.DestroyImmediate(temp);
             avatar.name = "RemoteAvatar";
