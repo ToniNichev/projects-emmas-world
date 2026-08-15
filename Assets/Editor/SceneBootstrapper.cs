@@ -1533,8 +1533,6 @@ namespace Sandbox.EditorTools
 
             Material frameMaterial = CreateMaterial("MirrorFrame", new Color(0.3f, 0.22f, 0.15f));
             Material glassMaterial = CreateMaterial("MirrorGlass", new Color(0.75f, 0.8f, 0.85f));
-            glassMaterial.SetFloat("_Glossiness", 0.95f);
-            glassMaterial.SetFloat("_Metallic", 0.6f);
 
             GameObject frame = GameObject.CreatePrimitive(PrimitiveType.Cube);
             frame.name = "Frame";
@@ -1550,6 +1548,33 @@ namespace Sandbox.EditorTools
             glass.transform.localScale = new Vector3(0.9f, 1.55f, 0.03f);
             Object.DestroyImmediate(glass.GetComponent<Collider>());
             glass.GetComponent<Renderer>().sharedMaterial = glassMaterial;
+
+            // A real reflection: a second camera sits right at the glass
+            // facing outward (the same direction the glass's front faces,
+            // matching its own local +Z) and renders whatever's in front of
+            // it -- the player, standing there to use the mirror -- into a
+            // texture the glass displays. Not a physically accurate mirror
+            // (that needs the camera reflected through the glass plane each
+            // frame plus an oblique near-clip plane), but it genuinely shows
+            // the player as they approach, which is what actually matters
+            // for a customization prop. Unlit so scene lighting hitting the
+            // glass doesn't tint/dim the rendered image.
+            var mirrorRT = new RenderTexture(512, 512, 16) { name = "MirrorRT" };
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(mirrorRT, $"{TexturesFolder}/MirrorRT.renderTexture");
+
+            GameObject mirrorCamGo = new GameObject("MirrorCamera");
+            mirrorCamGo.transform.SetParent(mirrorGo.transform, false);
+            mirrorCamGo.transform.localPosition = new Vector3(0f, 1.1f, 0.15f);
+            mirrorCamGo.transform.localRotation = Quaternion.identity;
+            Camera mirrorCamera = mirrorCamGo.AddComponent<Camera>();
+            mirrorCamera.targetTexture = mirrorRT;
+            mirrorCamera.fieldOfView = 50f;
+            mirrorCamera.nearClipPlane = 0.05f;
+            mirrorCamera.farClipPlane = 20f;
+
+            glassMaterial.shader = Shader.Find("Unlit/Texture");
+            glassMaterial.mainTexture = mirrorRT;
 
             GameObject stand = GameObject.CreatePrimitive(PrimitiveType.Cube);
             stand.name = "Stand";
