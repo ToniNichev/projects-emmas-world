@@ -1263,16 +1263,16 @@ namespace Sandbox.EditorTools
                 for (int x = 0; x < size; x++)
                     texture.SetPixel(x, y, clear);
 
-            DrawFilledCircle(texture, size * 0.32f, size * 0.62f, size * 0.08f, Color.black);
-            DrawFilledCircle(texture, size * 0.68f, size * 0.62f, size * 0.08f, Color.black);
+            DrawFilledCircle(texture, size * 0.32f, size * 0.62f, size * 0.12f, Color.black);
+            DrawFilledCircle(texture, size * 0.68f, size * 0.62f, size * 0.12f, Color.black);
 
             // Smile: corners higher than the center (a "u" shape) reads as
             // upturned/happy, not a frown.
             const float mouthCenterX = 0.5f;
-            const float mouthWidth = 0.34f;
-            const float mouthY = 0.34f;
-            const float curveDepth = 0.06f;
-            const float thickness = 0.035f;
+            const float mouthWidth = 0.4f;
+            const float mouthY = 0.32f;
+            const float curveDepth = 0.08f;
+            const float thickness = 0.05f;
             for (int x = 0; x < size; x++)
             {
                 float t = (x / (float)size - (mouthCenterX - mouthWidth / 2f)) / mouthWidth;
@@ -2183,7 +2183,12 @@ namespace Sandbox.EditorTools
             GameObject face = GameObject.CreatePrimitive(PrimitiveType.Quad);
             face.name = "Face";
             face.transform.SetParent(avatar.transform, false);
-            face.transform.localPosition = new Vector3(0f, 0.8f, 0.205f);
+            // 0.02 clear of the head's own front face (z=0.2), not the
+            // originally-tried 0.005 -- that was thin enough to risk
+            // z-fighting with the head cube's surface, which could make
+            // the decal flicker invisible or render behind the opaque head
+            // depending on how depth precision happened to resolve it.
+            face.transform.localPosition = new Vector3(0f, 0.8f, 0.22f);
             face.transform.localScale = new Vector3(0.3f, 0.3f, 1f);
             Object.DestroyImmediate(face.GetComponent<Collider>());
             face.GetComponent<Renderer>().sharedMaterial = faceMaterial;
@@ -2344,7 +2349,7 @@ namespace Sandbox.EditorTools
             // Visual only -- the root's CharacterController is the sole collider,
             // so a collider here would just be redundant (and could interfere with
             // BuildPlacer's raycasts, which only exclude the root's own layer).
-            Object.DestroyImmediate(part.GetComponent<BoxCollider>());
+            Object.DestroyImmediate(part.GetComponent<Collider>());
         }
 
         private static void CreateLimb(Transform parent, string name, Vector3 pivotLocalPosition, Vector3 limbSize, Material material)

@@ -3,12 +3,12 @@
     "maps": [
         {
             "name": "Player",
-            "id": "6a1ecb4e-0763-45f7-9a73-480955ed7207",
+            "id": "5b764e66-c3d2-4716-a55e-72448a20ed92",
             "actions": [
                 {
                     "name": "Move",
                     "type": "Value",
-                    "id": "5e6417a9-0ed0-4fab-ad13-5cf6ae80e656",
+                    "id": "b47f16aa-ad97-4840-8876-20911a2db1a6",
                     "expectedControlType": "Vector2",
                     "processors": "",
                     "interactions": "",
@@ -17,7 +17,7 @@
                 {
                     "name": "Sprint",
                     "type": "Button",
-                    "id": "d34a86c4-4cde-49f6-b36b-c974cc776e00",
+                    "id": "d8302384-ca74-41d0-b6df-abc90f09ba6b",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -26,7 +26,7 @@
                 {
                     "name": "Jump",
                     "type": "Button",
-                    "id": "f5d77a72-bd68-4cd0-9478-2dc9fc836616",
+                    "id": "80761daf-471e-4026-9866-39e376ba9426",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -35,7 +35,7 @@
                 {
                     "name": "Place",
                     "type": "Button",
-                    "id": "61c7f435-6fcd-4afa-b232-8d2ff49b6302",
+                    "id": "b434a12b-9cfd-409e-b3b2-474a57c7bd6e",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -44,7 +44,7 @@
                 {
                     "name": "Remove",
                     "type": "Button",
-                    "id": "ad2bfb51-eed6-4c99-bed2-00cc7bdaaea6",
+                    "id": "5954451f-b62d-49fb-9d66-4d25d1fdb634",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -53,7 +53,7 @@
                 {
                     "name": "Rotate",
                     "type": "Button",
-                    "id": "fe3d29ec-39d0-4dd2-9444-e228e751a756",
+                    "id": "ed946b1c-99d3-4854-bbfc-35d4447dd231",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -62,7 +62,7 @@
                 {
                     "name": "Undo",
                     "type": "Button",
-                    "id": "d0e0faa2-f91d-4a1b-9030-0dd83a66cb35",
+                    "id": "49774939-b7a4-4764-b5b3-dd011b5ae587",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -71,7 +71,7 @@
                 {
                     "name": "Save",
                     "type": "Button",
-                    "id": "2895fc57-d670-406c-a4d8-ce0468edaca2",
+                    "id": "fbd2fbc3-bfd3-4c22-b6b6-d6f94c4576b1",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -80,7 +80,7 @@
                 {
                     "name": "Load",
                     "type": "Button",
-                    "id": "5931b1a1-4f92-4766-a626-2363bd943dc1",
+                    "id": "596133bc-60f1-4dcb-99b5-8d6e737ec27c",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -89,7 +89,7 @@
                 {
                     "name": "SelectShape",
                     "type": "Button",
-                    "id": "bca2484b-5607-472c-af2b-129180c0a4e3",
+                    "id": "8f63b776-afd3-45d0-bff8-b2f4cae73590",
                     "expectedControlType": "",
                     "processors": "",
                     "interactions": "",
@@ -99,7 +99,7 @@
             "bindings": [
                 {
                     "name": "2DVector",
-                    "id": "e990b42a-7b06-46df-9b13-e19b0d887d03",
+                    "id": "782822e5-f7b8-481a-99f2-f4965e4aa155",
                     "path": "2DVector",
                     "interactions": "",
                     "processors": "",
@@ -110,7 +110,7 @@
                 },
                 {
                     "name": "Up",
-                    "id": "aec4a0c0-4639-45b9-b59d-36301b191632",
+                    "id": "34b6cdbc-1998-4d8e-81bd-8a727212844f",
                     "path": "<Keyboard>/w",
                     "interactions": "",
                     "processors": "",
@@ -121,7 +121,7 @@
                 },
                 {
                     "name": "Down",
-                    "id": "e23ff810-d38c-4e2a-8d46-d20b86dc87e7",
+                    "id": "4de25402-5c70-4233-8218-3b0e0183e030",
                     "path": "<Keyboard>/s",
                     "interactions": "",
                     "processors": "",
@@ -132,7 +132,7 @@
                 },
                 {
                     "name": "Left",
-                    "id": "3eddde4c-dd63-441f-9e42-11e8a0590431",
+                    "id": "72f444ba-414a-4d1c-a1db-3659604af36b",
                     "path": "<Keyboard>/a",
                     "interactions": "",
                     "processors": "",
@@ -143,7 +143,7 @@
                 },
                 {
                     "name": "Right",
-                    "id": "d53e6332-380b-48b6-8853-1343395d615b",
+                    "id": "f0be1fb3-2c4a-422a-89fd-1b57132f381a",
                     "path": "<Keyboard>/d",
                     "interactions": "",
                     "processors": "",
@@ -154,7 +154,7 @@
                 },
                 {
                     "name": "2DVector",
-                    "id": "5bf435a5-e047-4e44-b2b0-b1075224d02b",
+                    "id": "81f073f8-221a-40dd-bea0-0e796467f8b8",
                     "path": "2DVector",
                     "interactions": "",
                     "processors": "",
@@ -165,7 +165,7 @@
                 },
                 {
                     "name": "Up",
-                    "id": "9940362d-56d9-4168-af94-cb50e866df10",
+                    "id": "d030952b-667d-456e-8a54-58167b940824",
                     "path": "<Keyboard>/upArrow",
                     "interactions": "",
                     "processors": "",
@@ -176,7 +176,7 @@
                 },
                 {
                     "name": "Down",
-                    "id": "46cef0b8-bf5a-44de-95b9-83ea58cca024",
+                    "id": "4e4a2c7a-b6d1-4fe9-b90d-77cb743b9c58",
                     "path": "<Keyboard>/downArrow",
                     "interactions": "",
                     "processors": "",
@@ -187,7 +187,7 @@
                 },
                 {
                     "name": "Left",
-                    "id": "566c379f-af98-4122-9903-959549d7a432",
+                    "id": "4fab4442-81d6-4926-beb6-6b106610caec",
                     "path": "<Keyboard>/leftArrow",
                     "interactions": "",
                     "processors": "",
@@ -198,7 +198,7 @@
                 },
                 {
                     "name": "Right",
-                    "id": "30170745-3c92-402b-b087-4b6e4113c569",
+                    "id": "8077d34d-d3e8-42ef-ad0a-072de74733de",
                     "path": "<Keyboard>/rightArrow",
                     "interactions": "",
                     "processors": "",
@@ -209,7 +209,7 @@
                 },
                 {
                     "name": "",
-                    "id": "4951ea96-4863-4304-b454-c1ae899311b4",
+                    "id": "5f767f35-d5f3-481e-8af5-a3506908495f",
                     "path": "<Keyboard>/leftShift",
                     "interactions": "",
                     "processors": "",
@@ -220,7 +220,7 @@
                 },
                 {
                     "name": "",
-                    "id": "8403b344-5a0e-43b2-825e-047125b3104e",
+                    "id": "ab8d7b65-8c0b-4615-9509-f7b542859f9c",
                     "path": "<Keyboard>/space",
                     "interactions": "",
                     "processors": "",
@@ -231,7 +231,7 @@
                 },
                 {
                     "name": "",
-                    "id": "9ea722d9-1ef9-4cc9-b3e5-657e511039f8",
+                    "id": "7c7c09f9-e8e0-4424-a56a-0d601a85eb3c",
                     "path": "<Mouse>/leftButton",
                     "interactions": "",
                     "processors": "",
@@ -242,7 +242,7 @@
                 },
                 {
                     "name": "",
-                    "id": "dad21747-d8a0-4de3-9919-b583a10adcfe",
+                    "id": "b9b4756b-f5f8-4400-b572-7252d9fd1810",
                     "path": "<Touchscreen>/primaryTouch/press",
                     "interactions": "",
                     "processors": "",
@@ -253,7 +253,7 @@
                 },
                 {
                     "name": "",
-                    "id": "e478a390-be61-4909-aa85-b1577688dabe",
+                    "id": "f2a89710-7a2c-477f-a9c6-d40033075900",
                     "path": "<Keyboard>/q",
                     "interactions": "",
                     "processors": "",
@@ -264,7 +264,7 @@
                 },
                 {
                     "name": "",
-                    "id": "c25ee1fd-708d-4cd7-bcec-da8b1b386c77",
+                    "id": "ebf1af6f-0f82-4924-a840-6770dc2b546b",
                     "path": "<Keyboard>/r",
                     "interactions": "",
                     "processors": "",
@@ -275,7 +275,7 @@
                 },
                 {
                     "name": "",
-                    "id": "1cb5529d-bd2c-4d30-a404-6f782d41b10a",
+                    "id": "4b4a139b-86fd-4a4e-afc2-7c854cea73d8",
                     "path": "<Keyboard>/backspace",
                     "interactions": "",
                     "processors": "",
@@ -286,7 +286,7 @@
                 },
                 {
                     "name": "",
-                    "id": "d8e67304-d28f-4697-9b7f-fa1e85a04bac",
+                    "id": "4f82fef5-bbd5-407e-99cf-f87e982131b4",
                     "path": "<Keyboard>/f5",
                     "interactions": "",
                     "processors": "",
@@ -297,7 +297,7 @@
                 },
                 {
                     "name": "",
-                    "id": "f497fc4f-a3a1-498c-95bd-cf55ca77fe5f",
+                    "id": "6ce07363-dc42-49e0-92b1-612ce4160fa5",
                     "path": "<Keyboard>/f9",
                     "interactions": "",
                     "processors": "",
@@ -308,7 +308,7 @@
                 },
                 {
                     "name": "",
-                    "id": "f2d82fd6-8614-4f82-af5b-958985a6bdfa",
+                    "id": "8075295b-01c7-408b-83da-8ffc3addaa02",
                     "path": "<Keyboard>/1",
                     "interactions": "",
                     "processors": "",
@@ -319,7 +319,7 @@
                 },
                 {
                     "name": "",
-                    "id": "cab2f65a-a224-4db3-9569-d8742f81e734",
+                    "id": "066c73a7-ba2c-43b9-99a2-82a7d030c447",
                     "path": "<Keyboard>/2",
                     "interactions": "",
                     "processors": "",
@@ -330,7 +330,7 @@
                 },
                 {
                     "name": "",
-                    "id": "1e8a657a-4bb1-4000-a19e-adf5fa83f3c5",
+                    "id": "dcfd702f-e557-443a-b796-a75afd99e1c4",
                     "path": "<Keyboard>/3",
                     "interactions": "",
                     "processors": "",
@@ -341,7 +341,7 @@
                 },
                 {
                     "name": "",
-                    "id": "cd5d5b7a-aad8-41be-8b0e-e8a099bed63b",
+                    "id": "2e687ed3-a0a2-410e-b3b9-22f8fdd3a115",
                     "path": "<Keyboard>/4",
                     "interactions": "",
                     "processors": "",
