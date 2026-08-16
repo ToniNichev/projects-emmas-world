@@ -91,6 +91,7 @@ namespace Sandbox.EditorTools
             Material playerHeadMaterial = CreateMaterial("PlayerHead", new Color(0.95f, 0.8f, 0.65f));
             Material shirtMaterial = CreateMaterial("Shirt", Color.white);
             Material shoeMaterial = CreateMaterial("Shoes", new Color(0.15f, 0.15f, 0.18f));
+            Material faceMaterial = CreateMaterial("Face", Color.white);
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
@@ -106,6 +107,8 @@ namespace Sandbox.EditorTools
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
             shirtMaterial.SetFloat("_Glossiness", 0.2f); // matte cloth, not shiny plastic
             shoeMaterial.SetFloat("_Glossiness", 0.3f);
+            faceMaterial.mainTexture = CreateFaceTexture("FaceFeatures");
+            SetMaterialCutout(faceMaterial);
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyImportedTexture(rockMaterial, "Rock020.jpg", new Vector2(1f, 1f));
             ApplyImportedTexture(trunkMaterial, "Bark001.jpg", new Vector2(1f, 1f));
@@ -145,9 +148,9 @@ namespace Sandbox.EditorTools
             fireGlowMaterial.SetColor("_EmissionColor", new Color(1f, 0.45f, 0.1f) * 2.5f);
             BuildStorytalePlace(terrain, trunkMaterial, rockMaterial, fireGlowMaterial);
 
-            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial);
+            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, faceMaterial);
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, remoteAvatarPrefab);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, faceMaterial, remoteAvatarPrefab);
             OrbitCameraDragController cameraController = BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
             BuildEventSystem();
@@ -1239,6 +1242,73 @@ namespace Sandbox.EditorTools
             return texture;
         }
 
+        // Two filled circles for eyes plus a parabolic arc for a smile, on
+        // a transparent background -- worn as a small alpha-cutout decal on
+        // the front of the head cube rather than painted directly onto the
+        // head's own texture, since a cube's default UVs put the same
+        // texture on all six faces (eyes would show up on the back and
+        // sides of the head too).
+        private static Texture2D CreateFaceTexture(string name)
+        {
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            Color clear = new Color(0f, 0f, 0f, 0f);
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                    texture.SetPixel(x, y, clear);
+
+            DrawFilledCircle(texture, size * 0.32f, size * 0.62f, size * 0.08f, Color.black);
+            DrawFilledCircle(texture, size * 0.68f, size * 0.62f, size * 0.08f, Color.black);
+
+            // Smile: corners higher than the center (a "u" shape) reads as
+            // upturned/happy, not a frown.
+            const float mouthCenterX = 0.5f;
+            const float mouthWidth = 0.34f;
+            const float mouthY = 0.34f;
+            const float curveDepth = 0.06f;
+            const float thickness = 0.035f;
+            for (int x = 0; x < size; x++)
+            {
+                float t = (x / (float)size - (mouthCenterX - mouthWidth / 2f)) / mouthWidth;
+                if (t < 0f || t > 1f)
+                    continue;
+
+                float curveY = (mouthY - curveDepth * (1f - 4f * (t - 0.5f) * (t - 0.5f))) * size;
+                for (int y = 0; y < size; y++)
+                {
+                    if (Mathf.Abs(y - curveY) < thickness * size)
+                        texture.SetPixel(x, y, Color.black);
+                }
+            }
+
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            return texture;
+        }
+
+        private static void DrawFilledCircle(Texture2D texture, float centerX, float centerY, float radius, Color color)
+        {
+            int size = texture.width;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x - centerX;
+                    float dy = y - centerY;
+                    if (dx * dx + dy * dy <= radius * radius)
+                        texture.SetPixel(x, y, color);
+                }
+            }
+        }
+
         // FromToRotation on the cylinder's default up axis both aims and lays
         // it down in one step: base sits at the ring, tip leans in toward a
         // point above center, and the log's length runs along that line.
@@ -1998,7 +2068,7 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, GameObject remoteAvatarPrefab)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial, GameObject remoteAvatarPrefab)
         {
             // Root holds collision only (CharacterController); the visible blocky
             // humanoid lives under a child "Avatar" transform so the two can vary
@@ -2013,7 +2083,7 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial);
+            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, faceMaterial);
 
             AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
             SetPrivateField(customization, "shirtRenderers", new[]
@@ -2074,7 +2144,7 @@ namespace Sandbox.EditorTools
             return player;
         }
 
-        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial)
+        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial)
         {
             // Positions/sizes are in the root's local space, which is centered on
             // the CharacterController (center=(0,0,0), height=2) -- so this spans
@@ -2106,13 +2176,25 @@ namespace Sandbox.EditorTools
             CreateBodyPart(avatar.transform.Find("LeftLegPivot"), "LeftShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
             CreateBodyPart(avatar.transform.Find("RightLegPivot"), "RightShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
 
+            // Face: a small alpha-cutout card on the head's front (+Z, same
+            // direction ThirdPersonController treats as forward), not
+            // parented to Head specifically since Head never rotates
+            // independently of the avatar root anyway.
+            GameObject face = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            face.name = "Face";
+            face.transform.SetParent(avatar.transform, false);
+            face.transform.localPosition = new Vector3(0f, 0.8f, 0.205f);
+            face.transform.localScale = new Vector3(0.3f, 0.3f, 1f);
+            Object.DestroyImmediate(face.GetComponent<Collider>());
+            face.GetComponent<Renderer>().sharedMaterial = faceMaterial;
+
             return avatar;
         }
 
-        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial)
+        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial)
         {
             GameObject temp = new GameObject("RemoteAvatarRoot");
-            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial);
+            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, faceMaterial);
             avatar.transform.SetParent(null, true);
             Object.DestroyImmediate(temp);
             avatar.name = "RemoteAvatar";
