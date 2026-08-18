@@ -14,31 +14,6 @@ namespace Sandbox.EditorTools
         [MenuItem("Sandbox/Debug/Inspect Person Model")]
         public static void Inspect()
         {
-            ModelImporter importer = AssetImporter.GetAtPath(Path) as ModelImporter;
-            if (importer == null)
-            {
-                Debug.LogError($"ModelInspector: no ModelImporter at {Path}");
-                return;
-            }
-
-            Debug.Log($"ModelInspector: animationType={importer.animationType}");
-
-            Avatar avatar = importer.sourceAvatar;
-            if (avatar == null)
-            {
-                // Humanoid avatars built by the importer live as a sub-asset,
-                // not directly on sourceAvatar in every Unity version -- fall
-                // back to scanning sub-assets for it.
-                avatar = AssetDatabase.LoadAllAssetsAtPath(Path).OfType<Avatar>().FirstOrDefault();
-            }
-            Debug.Log(avatar != null
-                ? $"ModelInspector: avatar found, isValid={avatar.isValid}, isHuman={avatar.isHuman}"
-                : "ModelInspector: no Avatar sub-asset found");
-
-            Object[] allAssets = AssetDatabase.LoadAllAssetsAtPath(Path);
-            var clips = allAssets.OfType<AnimationClip>().ToArray();
-            Debug.Log($"ModelInspector: {clips.Length} AnimationClip(s): {string.Join(", ", clips.Select(c => c.name))}");
-
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(Path);
             if (prefab == null)
             {
@@ -47,21 +22,18 @@ namespace Sandbox.EditorTools
             }
 
             GameObject instance = Object.Instantiate(prefab);
-            Renderer[] renderers = instance.GetComponentsInChildren<Renderer>();
-            Bounds bounds = renderers.Length > 0 ? renderers[0].bounds : new Bounds();
-            foreach (Renderer r in renderers)
-                bounds.Encapsulate(r.bounds);
-            Debug.Log($"ModelInspector: {renderers.Length} renderer(s), combined bounds center={bounds.center}, size={bounds.size}");
 
-            foreach (Renderer r in renderers)
-                Debug.Log($"ModelInspector: renderer '{r.name}' type={r.GetType().Name} materials=[{string.Join(", ", r.sharedMaterials.Select(m => m == null ? "null" : m.name))}]");
+            Camera[] cameras = instance.GetComponentsInChildren<Camera>(true);
+            Debug.Log($"ModelInspector: {cameras.Length} Camera component(s) in the model: {string.Join(", ", cameras.Select(c => c.name))}");
 
-            SkinnedMeshRenderer smr = instance.GetComponentInChildren<SkinnedMeshRenderer>();
-            if (smr != null)
-                Debug.Log($"ModelInspector: SkinnedMeshRenderer bone count={smr.bones.Length}, rootBone={(smr.rootBone != null ? smr.rootBone.name : "null")}");
+            Light[] lights = instance.GetComponentsInChildren<Light>(true);
+            Debug.Log($"ModelInspector: {lights.Length} Light component(s) in the model: {string.Join(", ", lights.Select(l => l.name))}");
 
-            Animator animator = instance.GetComponentInChildren<Animator>();
-            Debug.Log(animator != null ? $"ModelInspector: has Animator, isHuman={animator.isHuman}" : "ModelInspector: no Animator component on prefab");
+            AudioListener[] listeners = instance.GetComponentsInChildren<AudioListener>(true);
+            Debug.Log($"ModelInspector: {listeners.Length} AudioListener component(s) in the model");
+
+            Transform[] all = instance.GetComponentsInChildren<Transform>(true);
+            Debug.Log($"ModelInspector: {all.Length} total transforms, names: {string.Join(", ", all.Select(t => t.name))}");
 
             Object.DestroyImmediate(instance);
         }

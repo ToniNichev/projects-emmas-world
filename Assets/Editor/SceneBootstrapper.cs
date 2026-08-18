@@ -2159,6 +2159,18 @@ namespace Sandbox.EditorTools
             avatar.transform.localPosition = new Vector3(0f, -1f, 0f);
             avatar.transform.localRotation = Quaternion.identity;
 
+            // The FBX carries a leftover Camera and Light from whatever
+            // preview scene the artist authored/rigged it in -- neither is
+            // part of the character. Left in, the stray camera renders
+            // uncontrolled alongside the real gameplay camera (breaking
+            // mouse-look and any screen-to-world raycasting, since they'd
+            // disagree about what's actually on screen) and the stray light
+            // moves around attached to the player.
+            foreach (Camera strayCamera in avatar.GetComponentsInChildren<Camera>(true))
+                Object.DestroyImmediate(strayCamera.gameObject);
+            foreach (Light strayLight in avatar.GetComponentsInChildren<Light>(true))
+                Object.DestroyImmediate(strayLight.gameObject);
+
             Animator animator = avatar.GetComponentInChildren<Animator>();
             if (animator != null)
             {
