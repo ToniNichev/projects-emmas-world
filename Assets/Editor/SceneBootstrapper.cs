@@ -1,6 +1,8 @@
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using UnityEditor;
+using UnityEditor.Animations;
 using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -155,7 +157,7 @@ namespace Sandbox.EditorTools
 
             GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial);
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial, remoteAvatarPrefab);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, remoteAvatarPrefab);
             OrbitCameraDragController cameraController = BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
             BuildEventSystem();
@@ -2125,12 +2127,95 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material hairMaterial, Material eyesMaterial, Material lipsMaterial, GameObject remoteAvatarPrefab)
+        private const string PersonModelPath = "Assets/Models/Imported/PersonAnimated.fbx";
+
+        // Real rigged/animated CC0 humanoid (see Assets/Models/Imported/README.txt)
+        // replacing the procedural cube avatar for the local player. Left
+        // parented under the same CharacterController-holding root as the
+        // cube avatar was, so nothing about collision/camera/multiplayer
+        // sync needs to change -- only what's visually attached differs.
+        private static GameObject BuildRealisticAvatarVisual(Transform parent)
         {
-            // Root holds collision only (CharacterController); the visible blocky
-            // humanoid lives under a child "Avatar" transform so the two can vary
-            // independently (e.g. later swapping/animating the avatar without
-            // touching collision).
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PersonModelPath);
+            if (prefab == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing model at {PersonModelPath}");
+                return new GameObject("Avatar");
+            }
+
+            GameObject avatar = Object.Instantiate(prefab, parent);
+            avatar.name = "Avatar";
+            // The model's own origin sits at its feet (bounds check: y spans
+            // roughly -0.1 to +2.1), so offsetting by -1 lines that up with
+            // the CharacterController's own bottom (center=0, height=2, so
+            // the collider spans local y -1 to +1) the same way the cube
+            // avatar's y -1-to-+1 body did.
+            avatar.transform.localPosition = new Vector3(0f, -1f, 0f);
+            avatar.transform.localRotation = Quaternion.identity;
+
+            Animator animator = avatar.GetComponentInChildren<Animator>();
+            if (animator != null)
+            {
+                animator.runtimeAnimatorController = BuildPersonAnimatorController();
+                // The state machine only needs to pose the bones -- movement
+                // itself is entirely CharacterController.Move, driven by
+                // ThirdPersonController, same as it was for the cube avatar's
+                // limb-swing animation. Baked-in root motion from the clips
+                // would otherwise fight that and cause sliding/drift.
+                animator.applyRootMotion = false;
+            }
+
+            return avatar;
+        }
+
+        private static RuntimeAnimatorController BuildPersonAnimatorController()
+        {
+            const string path = "Assets/Animations/PersonAnimator.controller";
+            Directory.CreateDirectory("Assets/Animations");
+
+            AnimationClip[] clips = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().ToArray();
+            AnimationClip idleClip = clips.First(c => c.name == "Armature|Standing");
+            AnimationClip walkClip = clips.First(c => c.name == "Armature|Walk");
+            AnimationClip runClip = clips.First(c => c.name == "Armature|Run");
+
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
+            controller.AddParameter("IsMoving", AnimatorControllerParameterType.Bool);
+            controller.AddParameter("IsSprinting", AnimatorControllerParameterType.Bool);
+
+            AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
+            AnimatorState idleState = stateMachine.AddState("Idle");
+            idleState.motion = idleClip;
+            AnimatorState walkState = stateMachine.AddState("Walk");
+            walkState.motion = walkClip;
+            AnimatorState runState = stateMachine.AddState("Run");
+            runState.motion = runClip;
+            stateMachine.defaultState = idleState;
+
+            // hasExitTime=false + a short duration -- instant, slightly
+            // blended swaps rather than waiting out the current clip, which
+            // suits snappy start/stop movement better than a cinematic blend.
+            AddTransition(idleState, walkState, AnimatorConditionMode.If, "IsMoving");
+            AddTransition(walkState, idleState, AnimatorConditionMode.IfNot, "IsMoving");
+            AddTransition(walkState, runState, AnimatorConditionMode.If, "IsSprinting");
+            AddTransition(runState, walkState, AnimatorConditionMode.IfNot, "IsSprinting");
+            AddTransition(runState, idleState, AnimatorConditionMode.IfNot, "IsMoving");
+
+            return controller;
+        }
+
+        private static void AddTransition(AnimatorState from, AnimatorState to, AnimatorConditionMode mode, string parameter)
+        {
+            AnimatorStateTransition transition = from.AddTransition(to);
+            transition.hasExitTime = false;
+            transition.duration = 0.15f;
+            transition.AddCondition(mode, 0f, parameter);
+        }
+
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, GameObject remoteAvatarPrefab)
+        {
+            // Root holds collision only (CharacterController); the visible
+            // humanoid lives under a child "Avatar" transform so the two can
+            // vary independently.
             GameObject player = new GameObject("Player");
             player.transform.position = new Vector3(0f, 1f, 0f);
             player.layer = LayerMask.NameToLayer(PlayerLayerName);
@@ -2140,45 +2225,23 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial);
+            GameObject avatar = BuildRealisticAvatarVisual(player.transform);
 
-            AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
-            SetPrivateField(customization, "shirtRenderers", new[]
-            {
-                avatar.transform.Find("Chest").GetComponent<Renderer>(),
-                avatar.transform.Find("Waist").GetComponent<Renderer>(),
-            });
-            SetPrivateField(customization, "skinRenderers", new[]
-            {
-                avatar.transform.Find("Head").GetComponent<Renderer>(),
-                avatar.transform.Find("LeftArmPivot/LeftArm").GetComponent<Renderer>(),
-                avatar.transform.Find("RightArmPivot/RightArm").GetComponent<Renderer>(),
-            });
-            SetPrivateField(customization, "legsRenderers", new[]
-            {
-                avatar.transform.Find("LeftLegPivot/LeftLeg").GetComponent<Renderer>(),
-                avatar.transform.Find("RightLegPivot/RightLeg").GetComponent<Renderer>(),
-            });
-            SetPrivateField(customization, "hairRenderers", new[]
-            {
-                avatar.transform.Find("HairTop").GetComponent<Renderer>(),
-                avatar.transform.Find("HairBack").GetComponent<Renderer>(),
-            });
-            // Eyes/Mouth are now a parent holding 3 fanned cards each (see
-            // CreateFacialFeatureCards), not a single renderer -- gather all
-            // of them so a color change applies to every angle at once.
-            SetPrivateField(customization, "eyesRenderers", avatar.transform.Find("Eyes").GetComponentsInChildren<Renderer>());
-            SetPrivateField(customization, "lipsRenderers", avatar.transform.Find("Mouth").GetComponentsInChildren<Renderer>());
-
-            BuildAccessories(avatar, out GameObject[] hats, out GameObject[] glassesOptions, out GameObject[] backpacks);
-            SetPrivateField(customization, "hats", hats);
-            SetPrivateField(customization, "glasses", glassesOptions);
-            SetPrivateField(customization, "backpacks", backpacks);
+            // No AvatarCustomization here -- the cube avatar's shirt/skin/
+            // hair/eyes/lips colors and hat/glasses/backpack toggles were
+            // wired to specific named cube parts and a per-feature material,
+            // neither of which this model has (it's one skinned mesh, one
+            // material). The mirror's customization panel still builds
+            // (BuildMirror below), it just has nothing to act on for now --
+            // recoloring a real model needs a texture-mask/tint setup, which
+            // is follow-up work, not part of this swap.
 
             player.AddComponent<SoundEffects>();
 
             ThirdPersonController controller = player.AddComponent<ThirdPersonController>();
-            player.AddComponent<AvatarAnimator>();
+            HumanoidAnimatorDriver animatorDriver = player.AddComponent<HumanoidAnimatorDriver>();
+            SetPrivateField(animatorDriver, "controller", controller);
+            SetPrivateField(animatorDriver, "animator", avatar.GetComponentInChildren<Animator>());
 
             // Its own GameObject, named to match exactly -- the WebGL bridge's
             // SendMessage('MultiplayerManager', ...) calls look up a GameObject
