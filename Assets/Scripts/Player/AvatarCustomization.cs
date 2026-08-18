@@ -13,6 +13,9 @@ namespace Sandbox.Player
         [SerializeField] private Renderer[] shirtRenderers;
         [SerializeField] private Renderer[] skinRenderers;
         [SerializeField] private Renderer[] legsRenderers;
+        [SerializeField] private Renderer[] hairRenderers;
+        [SerializeField] private Renderer[] eyesRenderers;
+        [SerializeField] private Renderer[] lipsRenderers;
 
         // Index 0 in each array is the "None" option and is left as a null
         // entry rather than a real GameObject -- SetActiveExclusive skips
@@ -25,6 +28,9 @@ namespace Sandbox.Player
         public void SetShirtColor(Color color) => ApplyColor(shirtRenderers, color);
         public void SetSkinColor(Color color) => ApplyColor(skinRenderers, color);
         public void SetLegsColor(Color color) => ApplyColor(legsRenderers, color);
+        public void SetHairColor(Color color) => ApplyColor(hairRenderers, color);
+        public void SetEyesColor(Color color) => ApplyColor(eyesRenderers, color);
+        public void SetLipsColor(Color color) => ApplyColor(lipsRenderers, color);
 
         public void SetHat(int index) => SetActiveExclusive(hats, index);
         public void SetGlasses(int index) => SetActiveExclusive(glasses, index);

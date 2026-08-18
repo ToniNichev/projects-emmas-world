@@ -10,7 +10,7 @@ namespace Sandbox.Player
     // method reference, not an arbitrary argument value like a Color.
     public class ColorSwatchButton : MonoBehaviour
     {
-        public enum Target { Shirt, Skin, Legs }
+        public enum Target { Shirt, Skin, Legs, Hair, Eyes, Lips }
 
         [SerializeField] private AvatarCustomization customization;
         [SerializeField] private Target target;
@@ -31,6 +31,15 @@ namespace Sandbox.Player
                     break;
                 case Target.Legs:
                     customization.SetLegsColor(color);
+                    break;
+                case Target.Hair:
+                    customization.SetHairColor(color);
+                    break;
+                case Target.Eyes:
+                    customization.SetEyesColor(color);
+                    break;
+                case Target.Lips:
+                    customization.SetLipsColor(color);
                     break;
             }
         }

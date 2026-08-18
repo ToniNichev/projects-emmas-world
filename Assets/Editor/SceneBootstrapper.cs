@@ -91,7 +91,9 @@ namespace Sandbox.EditorTools
             Material playerHeadMaterial = CreateMaterial("PlayerHead", new Color(0.95f, 0.8f, 0.65f));
             Material shirtMaterial = CreateMaterial("Shirt", Color.white);
             Material shoeMaterial = CreateMaterial("Shoes", new Color(0.15f, 0.15f, 0.18f));
-            Material faceMaterial = CreateMaterial("Face", Color.white);
+            Material hairMaterial = CreateMaterial("Hair", new Color(0.25f, 0.16f, 0.09f));
+            Material eyesMaterial = CreateMaterial("Eyes", new Color(0.05f, 0.05f, 0.05f));
+            Material lipsMaterial = CreateMaterial("Lips", new Color(0.65f, 0.25f, 0.25f));
             Material blockMaterial = CreateMaterial("Block", new Color(0.85f, 0.55f, 0.25f));
             Material rockMaterial = CreateMaterial("Rock", new Color(0.5f, 0.5f, 0.52f));
             Material trunkMaterial = CreateMaterial("Trunk", new Color(0.4f, 0.25f, 0.1f));
@@ -107,8 +109,11 @@ namespace Sandbox.EditorTools
             ApplyStripeTexture(shirtMaterial, "ShirtStripes", new Color(0.2f, 0.45f, 0.85f), Color.white, 6);
             shirtMaterial.SetFloat("_Glossiness", 0.2f); // matte cloth, not shiny plastic
             shoeMaterial.SetFloat("_Glossiness", 0.3f);
-            faceMaterial.mainTexture = CreateFaceTexture("FaceFeatures");
-            SetMaterialCutout(faceMaterial);
+            hairMaterial.SetFloat("_Glossiness", 0.15f); // matte hair, not shiny plastic
+            eyesMaterial.mainTexture = CreateEyesTexture("EyesFeature");
+            SetMaterialCutout(eyesMaterial);
+            lipsMaterial.mainTexture = CreateMouthTexture("MouthFeature");
+            SetMaterialCutout(lipsMaterial);
             ApplyBlockTexture(blockMaterial, "BlockGrain", new Color(0.85f, 0.85f, 0.85f), Color.white, 0.35f, 1f, 0.07f, 0.7f);
             ApplyImportedTexture(rockMaterial, "Rock020.jpg", new Vector2(1f, 1f));
             ApplyImportedTexture(trunkMaterial, "Bark001.jpg", new Vector2(1f, 1f));
@@ -148,9 +153,9 @@ namespace Sandbox.EditorTools
             fireGlowMaterial.SetColor("_EmissionColor", new Color(1f, 0.45f, 0.1f) * 2.5f);
             BuildStorytalePlace(terrain, trunkMaterial, rockMaterial, fireGlowMaterial);
 
-            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, faceMaterial);
+            GameObject remoteAvatarPrefab = CreateRemoteAvatarPrefab(playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial);
 
-            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, faceMaterial, remoteAvatarPrefab);
+            GameObject player = BuildPlayer(actions, blockPrefabs, placedBlocks.transform, playerMaterial, playerHeadMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial, remoteAvatarPrefab);
             OrbitCameraDragController cameraController = BuildCamera(player.transform);
             BuildPaletteUI(player.GetComponent<BuildPlacer>());
             BuildEventSystem();
@@ -1248,7 +1253,15 @@ namespace Sandbox.EditorTools
         // head's own texture, since a cube's default UVs put the same
         // texture on all six faces (eyes would show up on the back and
         // sides of the head too).
-        private static Texture2D CreateFaceTexture(string name)
+        // Eyes and mouth used to be one "Face" texture/quad/material; split
+        // into their own decal each (this one, and CreateMouthTexture below)
+        // so the mirror can recolor them independently -- one shared
+        // material's color tints every opaque pixel in its texture, so eyes
+        // and lips can't have separate colors while sharing a texture.
+        // White (not the original's black) so each material's own color --
+        // swappable via its mirror swatch row -- shows through, rather than
+        // always rendering black regardless of the chosen color.
+        private static Texture2D CreateEyesTexture(string name)
         {
             const int size = 64;
             var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
@@ -1263,8 +1276,30 @@ namespace Sandbox.EditorTools
                 for (int x = 0; x < size; x++)
                     texture.SetPixel(x, y, clear);
 
-            DrawFilledCircle(texture, size * 0.32f, size * 0.62f, size * 0.12f, Color.black);
-            DrawFilledCircle(texture, size * 0.68f, size * 0.62f, size * 0.12f, Color.black);
+            DrawFilledCircle(texture, size * 0.32f, size * 0.62f, size * 0.12f, Color.white);
+            DrawFilledCircle(texture, size * 0.68f, size * 0.62f, size * 0.12f, Color.white);
+
+            texture.Apply();
+
+            Directory.CreateDirectory(TexturesFolder);
+            AssetDatabase.CreateAsset(texture, $"{TexturesFolder}/{name}.asset");
+            return texture;
+        }
+
+        private static Texture2D CreateMouthTexture(string name)
+        {
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+
+            Color clear = new Color(0f, 0f, 0f, 0f);
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                    texture.SetPixel(x, y, clear);
 
             // Smile: corners higher than the center (a "u" shape) reads as
             // upturned/happy, not a frown.
@@ -1283,7 +1318,7 @@ namespace Sandbox.EditorTools
                 for (int y = 0; y < size; y++)
                 {
                     if (Mathf.Abs(y - curveY) < thickness * size)
-                        texture.SetPixel(x, y, Color.black);
+                        texture.SetPixel(x, y, Color.white);
                 }
             }
 
@@ -1681,11 +1716,14 @@ namespace Sandbox.EditorTools
             GameObject panel = new GameObject("Panel");
             panel.transform.SetParent(canvasGo.transform, false);
             RectTransform panelRect = panel.AddComponent<RectTransform>();
-            panelRect.anchorMin = new Vector2(0.5f, 1f);
-            panelRect.anchorMax = new Vector2(0.5f, 1f);
-            panelRect.pivot = new Vector2(0.5f, 1f);
-            panelRect.sizeDelta = new Vector2(420f, 480f);
-            panelRect.anchoredPosition = new Vector2(0f, -40f);
+            // Anchored to the top-right corner, not top-center -- centered
+            // put it directly over the avatar and mirror it's meant to let
+            // you see while customizing.
+            panelRect.anchorMin = new Vector2(1f, 1f);
+            panelRect.anchorMax = new Vector2(1f, 1f);
+            panelRect.pivot = new Vector2(1f, 1f);
+            panelRect.sizeDelta = new Vector2(420f, 675f);
+            panelRect.anchoredPosition = new Vector2(-20f, -40f);
             Image panelBackground = panel.AddComponent<Image>();
             panelBackground.color = new Color(0f, 0f, 0f, 0.55f);
 
@@ -1704,14 +1742,33 @@ namespace Sandbox.EditorTools
                 new Color(0.25f, 0.35f, 0.55f), new Color(0.15f, 0.15f, 0.15f), new Color(0.5f, 0.35f, 0.2f),
                 new Color(0.3f, 0.3f, 0.3f), new Color(0.35f, 0.5f, 0.3f),
             };
+            Color[] hairColors =
+            {
+                new Color(0.25f, 0.16f, 0.09f), new Color(0.05f, 0.05f, 0.05f), new Color(0.75f, 0.65f, 0.3f),
+                new Color(0.55f, 0.15f, 0.1f), new Color(0.85f, 0.85f, 0.85f),
+            };
 
             BuildSwatchRow(panel.transform, "Shirt", 0, shirtColors, ColorSwatchButton.Target.Shirt, customization);
             BuildSwatchRow(panel.transform, "Skin", 1, skinColors, ColorSwatchButton.Target.Skin, customization);
             BuildSwatchRow(panel.transform, "Pants", 2, legColors, ColorSwatchButton.Target.Legs, customization);
+            BuildSwatchRow(panel.transform, "Hair", 3, hairColors, ColorSwatchButton.Target.Hair, customization);
 
-            BuildAccessoryRow(panel.transform, "Hat", 3, new[] { "None", "Cap", "Top", "Party" }, AccessoryToggleButton.Category.Hat, customization);
-            BuildAccessoryRow(panel.transform, "Glasses", 4, new[] { "None", "Black", "Red" }, AccessoryToggleButton.Category.Glasses, customization);
-            BuildAccessoryRow(panel.transform, "Bag", 5, new[] { "None", "Blue", "Red" }, AccessoryToggleButton.Category.Backpack, customization);
+            BuildAccessoryRow(panel.transform, "Hat", 4, new[] { "None", "Cap", "Top", "Party" }, AccessoryToggleButton.Category.Hat, customization);
+            BuildAccessoryRow(panel.transform, "Glasses", 5, new[] { "None", "Black", "Red" }, AccessoryToggleButton.Category.Glasses, customization);
+            BuildAccessoryRow(panel.transform, "Bag", 6, new[] { "None", "Blue", "Red" }, AccessoryToggleButton.Category.Backpack, customization);
+
+            Color[] eyeColors =
+            {
+                new Color(0.05f, 0.05f, 0.05f), new Color(0.25f, 0.15f, 0.08f),
+                new Color(0.1f, 0.35f, 0.6f), new Color(0.15f, 0.45f, 0.2f),
+            };
+            Color[] lipColors =
+            {
+                new Color(0.65f, 0.25f, 0.25f), new Color(0.75f, 0.4f, 0.4f),
+                new Color(0.5f, 0.15f, 0.15f), new Color(0.05f, 0.05f, 0.05f),
+            };
+            BuildSwatchRow(panel.transform, "Eyes", 7, eyeColors, ColorSwatchButton.Target.Eyes, customization);
+            BuildSwatchRow(panel.transform, "Lips", 8, lipColors, ColorSwatchButton.Target.Lips, customization);
 
             return panel;
         }
@@ -2068,7 +2125,7 @@ namespace Sandbox.EditorTools
             return source;
         }
 
-        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial, GameObject remoteAvatarPrefab)
+        private static GameObject BuildPlayer(InputActionAsset actions, GameObject[] blockPrefabs, Transform blockParent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material hairMaterial, Material eyesMaterial, Material lipsMaterial, GameObject remoteAvatarPrefab)
         {
             // Root holds collision only (CharacterController); the visible blocky
             // humanoid lives under a child "Avatar" transform so the two can vary
@@ -2083,12 +2140,13 @@ namespace Sandbox.EditorTools
             characterController.radius = 0.5f;
             characterController.height = 2f;
 
-            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, faceMaterial);
+            GameObject avatar = BuildAvatarVisual(player.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial);
 
             AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
             SetPrivateField(customization, "shirtRenderers", new[]
             {
-                avatar.transform.Find("Torso").GetComponent<Renderer>(),
+                avatar.transform.Find("Chest").GetComponent<Renderer>(),
+                avatar.transform.Find("Waist").GetComponent<Renderer>(),
             });
             SetPrivateField(customization, "skinRenderers", new[]
             {
@@ -2101,6 +2159,16 @@ namespace Sandbox.EditorTools
                 avatar.transform.Find("LeftLegPivot/LeftLeg").GetComponent<Renderer>(),
                 avatar.transform.Find("RightLegPivot/RightLeg").GetComponent<Renderer>(),
             });
+            SetPrivateField(customization, "hairRenderers", new[]
+            {
+                avatar.transform.Find("HairTop").GetComponent<Renderer>(),
+                avatar.transform.Find("HairBack").GetComponent<Renderer>(),
+            });
+            // Eyes/Mouth are now a parent holding 3 fanned cards each (see
+            // CreateFacialFeatureCards), not a single renderer -- gather all
+            // of them so a color change applies to every angle at once.
+            SetPrivateField(customization, "eyesRenderers", avatar.transform.Find("Eyes").GetComponentsInChildren<Renderer>());
+            SetPrivateField(customization, "lipsRenderers", avatar.transform.Find("Mouth").GetComponentsInChildren<Renderer>());
 
             BuildAccessories(avatar, out GameObject[] hats, out GameObject[] glassesOptions, out GameObject[] backpacks);
             SetPrivateField(customization, "hats", hats);
@@ -2144,7 +2212,7 @@ namespace Sandbox.EditorTools
             return player;
         }
 
-        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial)
+        private static GameObject BuildAvatarVisual(Transform parent, Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material hairMaterial, Material eyesMaterial, Material lipsMaterial)
         {
             // Positions/sizes are in the root's local space, which is centered on
             // the CharacterController (center=(0,0,0), height=2) -- so this spans
@@ -2156,14 +2224,24 @@ namespace Sandbox.EditorTools
             GameObject avatar = new GameObject("Avatar");
             avatar.transform.SetParent(parent, false);
 
-            CreateBodyPart(avatar.transform, "Torso", new Vector3(0f, 0.25f, 0f), new Vector3(0.9f, 0.7f, 0.45f), shirtMaterial);
+            // Torso is two stacked blocks, not one -- a wider Chest over a
+            // narrower Waist gives a slight taper instead of one straight-
+            // sided brick, without needing an actual custom mesh. Combined
+            // height/vertical span (y -0.1 to 0.6) matches the original
+            // single Torso exactly, so nothing else (arm/leg pivots) moves.
+            CreateBodyPart(avatar.transform, "Chest", new Vector3(0f, 0.39f, 0f), new Vector3(0.92f, 0.42f, 0.46f), shirtMaterial);
+            CreateBodyPart(avatar.transform, "Waist", new Vector3(0f, 0.04f, 0f), new Vector3(0.74f, 0.28f, 0.4f), shirtMaterial);
             CreateBodyPart(avatar.transform, "Head", new Vector3(0f, 0.8f, 0f), new Vector3(0.4f, 0.4f, 0.4f), headMaterial);
 
             // Arms/legs hang from a pivot at the joint (shoulder/hip) rather than
             // being centered on themselves, so AvatarAnimator can rotate the pivot
             // for a real hinge swing instead of the limb just rocking in place.
-            CreateLimb(avatar.transform, "LeftArm", new Vector3(-0.6f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
-            CreateLimb(avatar.transform, "RightArm", new Vector3(0.6f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            // Pivot x pulled in slightly (0.58, not 0.6) so the arm's inner
+            // edge overlaps the now-wider Chest (half-width 0.46) instead of
+            // just touching it -- a small safety margin against a visible
+            // gap opening up during AvatarAnimator's idle sway.
+            CreateLimb(avatar.transform, "LeftArm", new Vector3(-0.58f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
+            CreateLimb(avatar.transform, "RightArm", new Vector3(0.58f, 0.6f, 0f), new Vector3(0.3f, 0.7f, 0.3f), headMaterial);
             CreateLimb(avatar.transform, "LeftLeg", new Vector3(-0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
             CreateLimb(avatar.transform, "RightLeg", new Vector3(0.2f, -0.1f, 0f), new Vector3(0.35f, 0.9f, 0.35f), bodyMaterial);
 
@@ -2176,30 +2254,97 @@ namespace Sandbox.EditorTools
             CreateBodyPart(avatar.transform.Find("LeftLegPivot"), "LeftShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
             CreateBodyPart(avatar.transform.Find("RightLegPivot"), "RightShoe", new Vector3(0f, -0.87f, 0.06f), new Vector3(0.4f, 0.18f, 0.46f), shoeMaterial);
 
-            // Face: a small alpha-cutout card on the head's front (+Z, same
-            // direction ThirdPersonController treats as forward), not
-            // parented to Head specifically since Head never rotates
-            // independently of the avatar root anyway.
-            GameObject face = GameObject.CreatePrimitive(PrimitiveType.Quad);
-            face.name = "Face";
-            face.transform.SetParent(avatar.transform, false);
+            // Hair: solid blocks with their inner face flush against the
+            // head's surface, not centered through it -- unlike the two
+            // earlier attempts (a squashed sphere sunk into the head, which
+            // read as a hole, and flat decal cards, which vanished edge-on
+            // from normal camera angles), a flush solid block has real
+            // volume so it's visible from any angle and doesn't intersect
+            // the head geometry it sits on.
+            // HairTop's bottom face sits exactly at the head's top (y=1.0).
+            // Thin (0.09, not the first-tried 0.16) so it reads as a cap
+            // sitting on the head, not a second block stacked on top of it.
+            CreateBodyPart(avatar.transform, "HairTop", new Vector3(0f, 1.045f, 0f), new Vector3(0.44f, 0.09f, 0.44f), hairMaterial);
+            // HairBack's front face sits exactly at the head's back (z=-0.2),
+            // spanning the same y-range as the head itself (0.6 to 1.0) so
+            // its top meets HairTop's bottom with no gap or overlap.
+            CreateBodyPart(avatar.transform, "HairBack", new Vector3(0f, 0.8f, -0.26f), new Vector3(0.4f, 0.4f, 0.12f), hairMaterial);
+
+            // Eyes and Mouth: small alpha-cutout cards on the head's front
+            // (+Z, same direction ThirdPersonController treats as forward),
+            // not parented to Head specifically since Head never rotates
+            // independently of the avatar root anyway. Two separate cards
+            // (not one "Face" card, like before) so the mirror can recolor
+            // eyes and lips independently -- a shared material/texture can't
+            // have two different colors on it at once.
             // 0.02 clear of the head's own front face (z=0.2), not the
             // originally-tried 0.005 -- that was thin enough to risk
             // z-fighting with the head cube's surface, which could make
             // the decal flicker invisible or render behind the opaque head
             // depending on how depth precision happened to resolve it.
-            face.transform.localPosition = new Vector3(0f, 0.8f, 0.22f);
-            face.transform.localScale = new Vector3(0.3f, 0.3f, 1f);
-            Object.DestroyImmediate(face.GetComponent<Collider>());
-            face.GetComponent<Renderer>().sharedMaterial = faceMaterial;
+            // z=0.221 for Mouth, not the same 0.22 as Eyes -- coplanar
+            // cutout quads at an identical depth are fine where their
+            // opaque pixels don't overlap (which eyes/mouth never do), but
+            // this rules out any z-fighting risk for free.
+            CreateFacialFeatureCards(avatar.transform, "Eyes", new Vector3(0f, 0.8f, 0.22f), eyesMaterial);
+            CreateFacialFeatureCards(avatar.transform, "Mouth", new Vector3(0f, 0.8f, 0.221f), lipsMaterial);
 
             return avatar;
         }
 
-        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material faceMaterial)
+        // A single flat quad is invisible edge-on, and the free-look orbit
+        // camera makes it easy to end up viewing the avatar from an angle
+        // where that's exactly what happens to a face decal -- the same
+        // failure mode that killed an earlier flat-card hair attempt. Fanning
+        // 3 copies at different Y angles around the same spot (the technique
+        // CreateFoliageCluster already uses, just 3 angles across the front
+        // instead of 6 all the way around, since a face only needs to read
+        // from the front) means at least one stays close to face-on across
+        // a wide viewing range.
+        private static GameObject CreateFacialFeatureCards(Transform avatarTransform, string name, Vector3 localPosition, Material material)
+        {
+            GameObject root = new GameObject(name);
+            root.transform.SetParent(avatarTransform, false);
+            root.transform.localPosition = localPosition;
+
+            // Angle alone left all 3 cards sharing the exact same pivot
+            // point, so viewed close to head-on -- the one viewing angle
+            // that matters most -- they sat at nearly identical depth and
+            // z-fought each other into flickering fully invisible. The z
+            // offset here is in the root's (unrotated) space, so it gives
+            // each card a real depth difference regardless of viewing angle,
+            // not just an angular one.
+            //
+            // +180 pairs each angle with a copy facing the opposite way --
+            // the same fix CreateFoliageCluster already needed for the exact
+            // same reason: Standard hard-culls backfaces with no material
+            // override, so a card facing only one hemisphere is invisible
+            // from the other, and there's no way to be sure in advance which
+            // side a given camera angle will approach from.
+            (float angle, float zOffset)[] cards =
+            {
+                (-25f, -0.002f), (0f, 0f), (25f, 0.002f),
+                (155f, -0.002f), (180f, 0f), (205f, 0.002f),
+            };
+            foreach ((float angle, float zOffset) in cards)
+            {
+                GameObject card = GameObject.CreatePrimitive(PrimitiveType.Quad);
+                card.name = $"Card{angle}";
+                card.transform.SetParent(root.transform, false);
+                card.transform.localPosition = new Vector3(0f, 0f, zOffset);
+                card.transform.localRotation = Quaternion.Euler(0f, angle, 0f);
+                card.transform.localScale = new Vector3(0.3f, 0.3f, 1f);
+                Object.DestroyImmediate(card.GetComponent<Collider>());
+                card.GetComponent<Renderer>().sharedMaterial = material;
+            }
+
+            return root;
+        }
+
+        private static GameObject CreateRemoteAvatarPrefab(Material bodyMaterial, Material headMaterial, Material shirtMaterial, Material shoeMaterial, Material hairMaterial, Material eyesMaterial, Material lipsMaterial)
         {
             GameObject temp = new GameObject("RemoteAvatarRoot");
-            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, faceMaterial);
+            GameObject avatar = BuildAvatarVisual(temp.transform, bodyMaterial, headMaterial, shirtMaterial, shoeMaterial, hairMaterial, eyesMaterial, lipsMaterial);
             avatar.transform.SetParent(null, true);
             Object.DestroyImmediate(temp);
             avatar.name = "RemoteAvatar";
