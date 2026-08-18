@@ -2136,6 +2136,12 @@ namespace Sandbox.EditorTools
         // sync needs to change -- only what's visually attached differs.
         private static GameObject BuildRealisticAvatarVisual(Transform parent)
         {
+            // Forces PersonAnimatedImporter's OnPreprocessAnimation (loop-time
+            // fix) to actually re-run -- Unity won't otherwise know to
+            // reimport an already-imported FBX just because the postprocessor
+            // script that touches its clip settings changed.
+            AssetDatabase.ImportAsset(PersonModelPath, ImportAssetOptions.ForceUpdate);
+
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PersonModelPath);
             if (prefab == null)
             {
