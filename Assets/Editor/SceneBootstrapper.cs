@@ -2127,10 +2127,19 @@ namespace Sandbox.EditorTools
             return source;
         }
 
+        // Kept only as the source of the Walk/Run/Idle animation clips
+        // (see Assets/Models/Imported/README.txt) -- no longer instantiated
+        // as the visible mesh (MikeAlger.fbx is, below), but both models
+        // import as Humanoid so Mecanim retargets these clips onto
+        // whichever skeleton the Animator's avatar actually points at.
         private const string PersonModelPath = "Assets/Models/Imported/PersonAnimated.fbx";
 
-        // Real rigged/animated CC0 humanoid (see Assets/Models/Imported/README.txt)
-        // replacing the procedural cube avatar for the local player. Left
+        // Real rigged/textured CC-Attribution humanoid (see
+        // Assets/Models/Imported/README-MikeAlger.txt) used as the local
+        // player's visual, in place of PersonAnimated's bare-skin mesh.
+        private const string PersonVisualModelPath = "Assets/Models/Imported/MikeAlger.fbx";
+
+        // Replacing the procedural cube avatar for the local player. Left
         // parented under the same CharacterController-holding root as the
         // cube avatar was, so nothing about collision/camera/multiplayer
         // sync needs to change -- only what's visually attached differs.
@@ -2139,37 +2148,49 @@ namespace Sandbox.EditorTools
             // Forces PersonAnimatedImporter's OnPreprocessAnimation (loop-time
             // fix) to actually re-run -- Unity won't otherwise know to
             // reimport an already-imported FBX just because the postprocessor
-            // script that touches its clip settings changed.
+            // script that touches its clip settings changed. Still needed
+            // even though this model is no longer the visible mesh, since
+            // its clips (loaded below) are what the Animator actually plays.
             AssetDatabase.ImportAsset(PersonModelPath, ImportAssetOptions.ForceUpdate);
 
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PersonModelPath);
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PersonVisualModelPath);
             if (prefab == null)
             {
-                Debug.LogError($"SceneBootstrapper: missing model at {PersonModelPath}");
+                Debug.LogError($"SceneBootstrapper: missing model at {PersonVisualModelPath}");
                 return new GameObject("Avatar");
             }
 
             GameObject avatar = Object.Instantiate(prefab, parent);
             avatar.name = "Avatar";
-            // The model's own origin sits at its feet (bounds check: y spans
-            // roughly -0.1 to +2.1), so offsetting by -1 lines that up with
-            // the CharacterController's own bottom (center=0, height=2, so
-            // the collider spans local y -1 to +1) the same way the cube
-            // avatar's y -1-to-+1 body did.
+            // The model's own origin sits at its feet (a one-off bone dump
+            // via MikeAlgerModelInspector showed combined mesh bounds of
+            // roughly y -0.14 to +1.80, with the root transform at y=0), so
+            // offsetting by -1 lines that up with the CharacterController's
+            // own bottom (center=0, height=2, so the collider spans local y
+            // -1 to +1) the same way PersonAnimated's y -0.1-to-+2.1 mesh
+            // and the cube avatar before it both did.
             avatar.transform.localPosition = new Vector3(0f, -1f, 0f);
             avatar.transform.localRotation = Quaternion.identity;
 
-            // The FBX carries a leftover Camera and Light from whatever
-            // preview scene the artist authored/rigged it in -- neither is
-            // part of the character. Left in, the stray camera renders
-            // uncontrolled alongside the real gameplay camera (breaking
-            // mouse-look and any screen-to-world raycasting, since they'd
-            // disagree about what's actually on screen) and the stray light
-            // moves around attached to the player.
+            // Sketchfab downloads sometimes carry a leftover Camera/Light
+            // from the artist's authoring scene (PersonAnimated.fbx had
+            // exactly this problem) -- defensively strip them even though
+            // MikeAlgerModelInspector found none in this particular export.
             foreach (Camera strayCamera in avatar.GetComponentsInChildren<Camera>(true))
                 Object.DestroyImmediate(strayCamera.gameObject);
             foreach (Light strayLight in avatar.GetComponentsInChildren<Light>(true))
                 Object.DestroyImmediate(strayLight.gameObject);
+
+            // Unlike PersonAnimated (bare skin, no texture), this model ships
+            // its own diffuse texture shared across its 7 separate skinned
+            // meshes (Body/Bracelet/Sweatshirt/Pants/Hair/Shirt/Shoes --
+            // confirmed via MikeAlgerModelInspector), so every renderer gets
+            // the same imported texture instead of a procedural material.
+            Material personMaterial = CreateMaterial("PersonBody", Color.white);
+            ApplyImportedTexture(personMaterial, "MikeAlger_Texture.jpeg", Vector2.one);
+            personMaterial.SetFloat("_Glossiness", 0.25f); // matte skin/cloth, not shiny plastic
+            foreach (SkinnedMeshRenderer renderer in avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                renderer.sharedMaterial = personMaterial;
 
             Animator animator = avatar.GetComponentInChildren<Animator>();
             if (animator != null)
@@ -2181,9 +2202,74 @@ namespace Sandbox.EditorTools
                 // limb-swing animation. Baked-in root motion from the clips
                 // would otherwise fight that and cause sliding/drift.
                 animator.applyRootMotion = false;
+
+                // Accessories below are fixed offsets computed from each
+                // bone's CURRENT rotation at the moment they're built. Left
+                // alone, that moment is the FBX's raw T-pose bind pose (arms
+                // out) -- but the Animator's default state is Idle, which
+                // poses the skeleton very differently (arms down) the
+                // instant Play starts. Sampling the idle clip's first frame
+                // here first means those fixed offsets are computed against
+                // the pose the character actually rests in at runtime, which
+                // is what keeps a bone-anchored piece from reading as rotated
+                // away from the limb it's supposed to sit on. The clip comes
+                // from PersonModelPath (this model ships none of its own)
+                // and retargets onto this avatar via the shared Humanoid rig.
+                AnimationClip idleClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().First(c => c.name == "Armature|Standing");
+                idleClip.SampleAnimation(avatar, 0f);
+
+                BuildRealisticAccessories(parent.gameObject, animator);
             }
 
             return avatar;
+        }
+
+        // MikeAlger ships its own modeled/textured clothes (separate Body/
+        // Sweatshirt/Pants/Shirt/Shoes/Hair/Bracelet skinned meshes), so
+        // unlike the old bare-skin PersonAnimated mesh there's no need to
+        // bolt primitive capsule/cube clothing onto the rig -- that would
+        // just float redundantly over geometry that's already there. Only
+        // hats/glasses/backpacks (genuinely additive, not replacing
+        // anything already modeled) still get bone-anchored here.
+        private static void BuildRealisticAccessories(GameObject player, Animator animator)
+        {
+            Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
+            Transform chest = animator.GetBoneTransform(HumanBodyBones.Chest);
+
+            if (head == null || chest == null)
+            {
+                Debug.LogWarning("SceneBootstrapper: MikeAlger is missing an expected bone -- skipping accessories.");
+                return;
+            }
+
+            Transform headAnchor = CreateWorldAlignedAnchor(head, "HeadAnchor");
+            Transform chestAnchor = CreateWorldAlignedAnchor(chest, "ChestAnchor");
+            BuildAccessories(headAnchor, chestAnchor, out GameObject[] hats, out GameObject[] glassesOptions, out GameObject[] backpacks);
+
+            AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
+            SetPrivateField(customization, "hats", hats);
+            SetPrivateField(customization, "glasses", glassesOptions);
+            SetPrivateField(customization, "backpacks", backpacks);
+            // Shirt/legs/skin/hair/eyes/lips stay unwired -- MikeAlger's own
+            // meshes/materials are what render those regions now, so the
+            // mirror's corresponding color rows stay harmless no-ops
+            // (ApplyColor no-ops on a null renderer array), same as
+            // skin/hair/eyes/lips already were for the old model.
+        }
+
+        // An invisible child of a humanoid bone whose local rotation/scale
+        // cancel that bone's own rest-pose rotation and scale -- lets
+        // anything parented under it (accessories, in BuildRealisticAccessories)
+        // use simple "meters, world-aligned" offsets regardless of how the
+        // bone itself is oriented/scaled in its rest pose.
+        private static Transform CreateWorldAlignedAnchor(Transform bone, string name)
+        {
+            GameObject anchor = new GameObject(name);
+            anchor.transform.SetParent(bone, false);
+            anchor.transform.localRotation = Quaternion.Inverse(bone.rotation);
+            Vector3 boneScale = bone.lossyScale;
+            anchor.transform.localScale = new Vector3(1f / boneScale.x, 1f / boneScale.y, 1f / boneScale.z);
+            return anchor.transform;
         }
 
         private static RuntimeAnimatorController BuildPersonAnimatorController()
@@ -2244,15 +2330,6 @@ namespace Sandbox.EditorTools
             characterController.height = 2f;
 
             GameObject avatar = BuildRealisticAvatarVisual(player.transform);
-
-            // No AvatarCustomization here -- the cube avatar's shirt/skin/
-            // hair/eyes/lips colors and hat/glasses/backpack toggles were
-            // wired to specific named cube parts and a per-feature material,
-            // neither of which this model has (it's one skinned mesh, one
-            // material). The mirror's customization panel still builds
-            // (BuildMirror below), it just has nothing to act on for now --
-            // recoloring a real model needs a texture-mask/tint setup, which
-            // is follow-up work, not part of this swap.
 
             player.AddComponent<SoundEffects>();
 
@@ -2444,7 +2521,11 @@ namespace Sandbox.EditorTools
         // treats a null entry as "deactivate everything else in this
         // category" rather than needing a real empty GameObject for it.
         // Every option starts inactive so "None" is the default look.
-        private static void BuildAccessories(GameObject avatar, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        // headParent/chestParent are expected to already be world-aligned
+        // (see CreateWorldAlignedAnchor) -- the offsets below are plain
+        // meters from the head/chest bone, not the old avatar-root-relative
+        // ones this used before the swap to the real rigged model.
+        private static void BuildAccessories(Transform headParent, Transform chestParent, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
         {
             Material capMaterial = CreateMaterial("HatCap", new Color(0.75f, 0.15f, 0.15f));
             Material topHatMaterial = CreateMaterial("HatTop", new Color(0.1f, 0.1f, 0.12f));
@@ -2454,17 +2535,17 @@ namespace Sandbox.EditorTools
             Material backpackBlueMaterial = CreateMaterial("BackpackBlue", new Color(0.15f, 0.35f, 0.75f));
             Material backpackRedMaterial = CreateMaterial("BackpackRed", new Color(0.7f, 0.15f, 0.15f));
 
-            GameObject cap = CreateHatCap(avatar.transform, capMaterial);
-            GameObject topHat = CreateHatTop(avatar.transform, topHatMaterial);
-            GameObject partyHat = CreateHatParty(avatar.transform, partyHatMaterial);
+            GameObject cap = CreateHatCap(headParent, capMaterial);
+            GameObject topHat = CreateHatTop(headParent, topHatMaterial);
+            GameObject partyHat = CreateHatParty(headParent, partyHatMaterial);
             hats = new[] { null, cap, topHat, partyHat };
 
-            GameObject glassesBlack = CreateGlasses(avatar.transform, "GlassesBlack", glassesBlackMaterial);
-            GameObject glassesRed = CreateGlasses(avatar.transform, "GlassesRed", glassesRedMaterial);
+            GameObject glassesBlack = CreateGlasses(headParent, "GlassesBlack", glassesBlackMaterial);
+            GameObject glassesRed = CreateGlasses(headParent, "GlassesRed", glassesRedMaterial);
             glasses = new[] { null, glassesBlack, glassesRed };
 
-            GameObject backpackBlue = CreateBackpack(avatar.transform, "BackpackBlue", backpackBlueMaterial);
-            GameObject backpackRed = CreateBackpack(avatar.transform, "BackpackRed", backpackRedMaterial);
+            GameObject backpackBlue = CreateBackpack(chestParent, "BackpackBlue", backpackBlueMaterial);
+            GameObject backpackRed = CreateBackpack(chestParent, "BackpackRed", backpackRedMaterial);
             backpacks = new[] { null, backpackBlue, backpackRed };
 
             foreach (GameObject option in hats)
@@ -2479,7 +2560,7 @@ namespace Sandbox.EditorTools
         {
             GameObject cap = new GameObject("HatCap");
             cap.transform.SetParent(avatarTransform, false);
-            cap.transform.localPosition = new Vector3(0f, 1.02f, 0f);
+            cap.transform.localPosition = new Vector3(0f, 0.24f, 0f);
 
             GameObject dome = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             dome.name = "Dome";
@@ -2503,7 +2584,7 @@ namespace Sandbox.EditorTools
         {
             GameObject hat = new GameObject("HatTop");
             hat.transform.SetParent(avatarTransform, false);
-            hat.transform.localPosition = new Vector3(0f, 1f, 0f);
+            hat.transform.localPosition = new Vector3(0f, 0.24f, 0f);
 
             GameObject crown = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             crown.name = "Crown";
@@ -2527,7 +2608,7 @@ namespace Sandbox.EditorTools
         {
             GameObject hat = new GameObject("HatParty");
             hat.transform.SetParent(avatarTransform, false);
-            hat.transform.localPosition = new Vector3(0f, 1f, 0f);
+            hat.transform.localPosition = new Vector3(0f, 0.24f, 0f);
 
             GameObject spike = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             spike.name = "Spike";
@@ -2544,7 +2625,7 @@ namespace Sandbox.EditorTools
         {
             GameObject glassesGo = new GameObject(name);
             glassesGo.transform.SetParent(avatarTransform, false);
-            glassesGo.transform.localPosition = new Vector3(0f, 0.82f, 0f);
+            glassesGo.transform.localPosition = new Vector3(0f, 0.04f, 0.09f);
 
             CreateBodyPart(glassesGo.transform, "LeftLens", new Vector3(-0.11f, 0f, 0.19f), new Vector3(0.12f, 0.08f, 0.03f), material);
             CreateBodyPart(glassesGo.transform, "RightLens", new Vector3(0.11f, 0f, 0.19f), new Vector3(0.12f, 0.08f, 0.03f), material);
@@ -2557,13 +2638,14 @@ namespace Sandbox.EditorTools
         {
             GameObject backpack = new GameObject(name);
             backpack.transform.SetParent(avatarTransform, false);
+            backpack.transform.localPosition = new Vector3(0f, -0.05f, 0f);
 
-            CreateBodyPart(backpack.transform, "Bag", new Vector3(0f, 0.3f, -0.32f), new Vector3(0.5f, 0.55f, 0.22f), material);
+            CreateBodyPart(backpack.transform, "Bag", new Vector3(0f, 0f, -0.2f), new Vector3(0.5f, 0.55f, 0.22f), material);
 
             return backpack;
         }
 
-        private static void CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
+        private static GameObject CreateBodyPart(Transform parent, string name, Vector3 localPosition, Vector3 size, Material material)
         {
             GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cube);
             part.name = name;
@@ -2576,6 +2658,7 @@ namespace Sandbox.EditorTools
             // so a collider here would just be redundant (and could interfere with
             // BuildPlacer's raycasts, which only exclude the root's own layer).
             Object.DestroyImmediate(part.GetComponent<Collider>());
+            return part;
         }
 
         private static void CreateLimb(Transform parent, string name, Vector3 pivotLocalPosition, Vector3 limbSize, Material material)
