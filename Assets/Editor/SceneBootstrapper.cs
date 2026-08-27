@@ -1773,7 +1773,7 @@ namespace Sandbox.EditorTools
             BuildSwatchRow(panel.transform, "Eyes", 7, eyeColors, ColorSwatchButton.Target.Eyes, customization);
             BuildSwatchRow(panel.transform, "Lips", 8, lipColors, ColorSwatchButton.Target.Lips, customization);
 
-            BuildAccessoryRow(panel.transform, "Body", 9, new[] { "Mike", "Girl" }, AccessoryToggleButton.Category.Body, customization);
+            BuildAccessoryRow(panel.transform, "Body", 9, new[] { "Mike", "Girl", "Chibi" }, AccessoryToggleButton.Category.Body, customization);
 
             return panel;
         }
@@ -2148,7 +2148,12 @@ namespace Sandbox.EditorTools
         // selectable visual, picked from the mirror's new Body row.
         private const string CartoonGirlModelPath = "Assets/Models/Imported/CartoonGirl.fbx";
 
-        // Both selectable bodies live as siblings under one "Avatar" root,
+        // Cute chibi-styled humanoid (see
+        // Assets/Models/Imported/README-ChibiGirl.txt) -- a third
+        // selectable visual, picked from the mirror's Body row.
+        private const string ChibiGirlModelPath = "Assets/Models/Imported/ChibiGirl.fbx";
+
+        // All selectable bodies live as siblings under one "Avatar" root,
         // only one active at a time (AvatarCustomization.SetBody), so
         // switching in the mirror is just a SetActive toggle plus
         // repointing HumanoidAnimatorDriver at the newly active skeleton's
@@ -2177,8 +2182,9 @@ namespace Sandbox.EditorTools
 
             GameObject mikeAlgerBody = BuildMikeAlgerBody(avatarRoot.transform, controller, out GameObject[] mikeHats, out GameObject[] mikeGlasses, out GameObject[] mikeBackpacks);
             GameObject cartoonGirlBody = BuildCartoonGirlBody(avatarRoot.transform, controller, out GameObject[] girlHats, out GameObject[] girlGlasses, out GameObject[] girlBackpacks);
+            GameObject chibiGirlBody = BuildChibiGirlBody(avatarRoot.transform, controller, out GameObject[] chibiHats, out GameObject[] chibiGlasses, out GameObject[] chibiBackpacks);
 
-            GameObject[] bodies = { mikeAlgerBody, cartoonGirlBody };
+            GameObject[] bodies = { mikeAlgerBody, cartoonGirlBody, chibiGirlBody };
             // MikeAlger active by default at build time; AvatarCustomization's
             // own Awake() re-applies whatever was last picked (PlayerPrefs)
             // before the first frame renders.
@@ -2187,9 +2193,9 @@ namespace Sandbox.EditorTools
 
             AvatarCustomization customization = parent.gameObject.AddComponent<AvatarCustomization>();
             SetPrivateField(customization, "bodies", bodies);
-            SetPrivateField(customization, "hatsByBody", new[] { mikeHats, girlHats });
-            SetPrivateField(customization, "glassesByBody", new[] { mikeGlasses, girlGlasses });
-            SetPrivateField(customization, "backpacksByBody", new[] { mikeBackpacks, girlBackpacks });
+            SetPrivateField(customization, "hatsByBody", new[] { mikeHats, girlHats, chibiHats });
+            SetPrivateField(customization, "glassesByBody", new[] { mikeGlasses, girlGlasses, chibiGlasses });
+            SetPrivateField(customization, "backpacksByBody", new[] { mikeBackpacks, girlBackpacks, chibiBackpacks });
             // "animatorDriver" is wired in BuildPlayer instead -- the
             // HumanoidAnimatorDriver component doesn't exist yet at this
             // point in the call chain.
@@ -2344,6 +2350,53 @@ namespace Sandbox.EditorTools
             if (textureFileName != null)
                 ApplyImportedTexture(material, textureFileName, Vector2.one);
             return material;
+        }
+
+        // Simplest of the three bodies -- a single skinned mesh with one
+        // material (confirmed via ChibiGirlModelInspector), so it follows
+        // MikeAlger's one-texture pattern rather than CartoonGirl's
+        // per-region material split.
+        private static GameObject BuildChibiGirlBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ChibiGirlModelPath);
+            if (prefab == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing model at {ChibiGirlModelPath}");
+                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                return new GameObject("ChibiGirl");
+            }
+
+            GameObject avatar = Object.Instantiate(prefab, parent);
+            avatar.name = "ChibiGirl";
+            // Combined mesh bounds (via ChibiGirlModelInspector) run from
+            // y -0.11 to +1.28 with the root already essentially at the
+            // feet -- same -1 offset as the other two bodies, within the
+            // same couple-cm tolerance already accepted for their overhangs.
+            avatar.transform.localPosition = new Vector3(0f, -1f, 0f);
+            avatar.transform.localRotation = Quaternion.identity;
+
+            foreach (Camera strayCamera in avatar.GetComponentsInChildren<Camera>(true))
+                Object.DestroyImmediate(strayCamera.gameObject);
+            foreach (Light strayLight in avatar.GetComponentsInChildren<Light>(true))
+                Object.DestroyImmediate(strayLight.gameObject);
+
+            Material chibiMaterial = CreateMaterial("ChibiGirlBody", Color.white);
+            ApplyImportedTexture(chibiMaterial, "ChibiGirl_albedo.jpeg", Vector2.one);
+            foreach (SkinnedMeshRenderer renderer in avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                renderer.sharedMaterial = chibiMaterial;
+
+            Animator animator = avatar.GetComponentInChildren<Animator>();
+            hats = glasses = backpacks = System.Array.Empty<GameObject>();
+            if (animator != null)
+            {
+                animator.runtimeAnimatorController = controller;
+                animator.applyRootMotion = false;
+
+                SampleIdlePoseForAccessories(avatar);
+                BuildBodyAccessories(animator, "ChibiGirl", out hats, out glasses, out backpacks);
+            }
+
+            return avatar;
         }
 
         // Accessories below are fixed offsets computed from each bone's
