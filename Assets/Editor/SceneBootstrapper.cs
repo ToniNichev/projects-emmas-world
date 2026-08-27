@@ -2160,6 +2160,24 @@ namespace Sandbox.EditorTools
         // Animator -- see AvatarCustomization.cs. Left parented under the
         // same CharacterController-holding root the cube avatar used, so
         // nothing about collision/camera/multiplayer sync needs to change.
+        // Bundles what each Build*Body function produces for
+        // AvatarCustomization beyond the body GameObject itself. A plain
+        // struct instead of nine separate out-parameters per body-building
+        // function -- hats/glasses/backpacks plus six color-region renderer
+        // arrays would otherwise make those signatures unreadable.
+        private struct BodyCustomizationSlots
+        {
+            public GameObject[] Hats;
+            public GameObject[] Glasses;
+            public GameObject[] Backpacks;
+            public Renderer[] ShirtRenderers;
+            public Renderer[] SkinRenderers;
+            public Renderer[] LegsRenderers;
+            public Renderer[] HairRenderers;
+            public Renderer[] EyesRenderers;
+            public Renderer[] LipsRenderers;
+        }
+
         private static GameObject BuildRealisticAvatarVisual(Transform parent)
         {
             // Forces PersonAnimatedImporter's OnPreprocessAnimation (loop-time
@@ -2180,9 +2198,9 @@ namespace Sandbox.EditorTools
             // asset path twice.
             RuntimeAnimatorController controller = BuildPersonAnimatorController();
 
-            GameObject mikeAlgerBody = BuildMikeAlgerBody(avatarRoot.transform, controller, out GameObject[] mikeHats, out GameObject[] mikeGlasses, out GameObject[] mikeBackpacks);
-            GameObject cartoonGirlBody = BuildCartoonGirlBody(avatarRoot.transform, controller, out GameObject[] girlHats, out GameObject[] girlGlasses, out GameObject[] girlBackpacks);
-            GameObject chibiGirlBody = BuildChibiGirlBody(avatarRoot.transform, controller, out GameObject[] chibiHats, out GameObject[] chibiGlasses, out GameObject[] chibiBackpacks);
+            GameObject mikeAlgerBody = BuildMikeAlgerBody(avatarRoot.transform, controller, out BodyCustomizationSlots mikeSlots);
+            GameObject cartoonGirlBody = BuildCartoonGirlBody(avatarRoot.transform, controller, out BodyCustomizationSlots girlSlots);
+            GameObject chibiGirlBody = BuildChibiGirlBody(avatarRoot.transform, controller, out BodyCustomizationSlots chibiSlots);
 
             GameObject[] bodies = { mikeAlgerBody, cartoonGirlBody, chibiGirlBody };
             // MikeAlger active by default at build time; AvatarCustomization's
@@ -2193,9 +2211,15 @@ namespace Sandbox.EditorTools
 
             AvatarCustomization customization = parent.gameObject.AddComponent<AvatarCustomization>();
             SetPrivateField(customization, "bodies", bodies);
-            SetPrivateField(customization, "hatsByBody", new[] { mikeHats, girlHats, chibiHats });
-            SetPrivateField(customization, "glassesByBody", new[] { mikeGlasses, girlGlasses, chibiGlasses });
-            SetPrivateField(customization, "backpacksByBody", new[] { mikeBackpacks, girlBackpacks, chibiBackpacks });
+            SetPrivateField(customization, "hatsByBody", WrapGroups(mikeSlots.Hats, girlSlots.Hats, chibiSlots.Hats));
+            SetPrivateField(customization, "glassesByBody", WrapGroups(mikeSlots.Glasses, girlSlots.Glasses, chibiSlots.Glasses));
+            SetPrivateField(customization, "backpacksByBody", WrapGroups(mikeSlots.Backpacks, girlSlots.Backpacks, chibiSlots.Backpacks));
+            SetPrivateField(customization, "shirtRenderersByBody", WrapGroups(mikeSlots.ShirtRenderers, girlSlots.ShirtRenderers, chibiSlots.ShirtRenderers));
+            SetPrivateField(customization, "skinRenderersByBody", WrapGroups(mikeSlots.SkinRenderers, girlSlots.SkinRenderers, chibiSlots.SkinRenderers));
+            SetPrivateField(customization, "legsRenderersByBody", WrapGroups(mikeSlots.LegsRenderers, girlSlots.LegsRenderers, chibiSlots.LegsRenderers));
+            SetPrivateField(customization, "hairRenderersByBody", WrapGroups(mikeSlots.HairRenderers, girlSlots.HairRenderers, chibiSlots.HairRenderers));
+            SetPrivateField(customization, "eyesRenderersByBody", WrapGroups(mikeSlots.EyesRenderers, girlSlots.EyesRenderers, chibiSlots.EyesRenderers));
+            SetPrivateField(customization, "lipsRenderersByBody", WrapGroups(mikeSlots.LipsRenderers, girlSlots.LipsRenderers, chibiSlots.LipsRenderers));
             // "animatorDriver" is wired in BuildPlayer instead -- the
             // HumanoidAnimatorDriver component doesn't exist yet at this
             // point in the call chain.
@@ -2208,13 +2232,13 @@ namespace Sandbox.EditorTools
         // unlike the old bare-skin PersonAnimated mesh there's no need to
         // bolt primitive capsule/cube clothing onto the rig -- that would
         // just float redundantly over geometry that's already there.
-        private static GameObject BuildMikeAlgerBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        private static GameObject BuildMikeAlgerBody(Transform parent, RuntimeAnimatorController controller, out BodyCustomizationSlots slots)
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(MikeAlgerModelPath);
             if (prefab == null)
             {
                 Debug.LogError($"SceneBootstrapper: missing model at {MikeAlgerModelPath}");
-                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                slots = EmptyCustomizationSlots();
                 return new GameObject("MikeAlger");
             }
 
@@ -2250,8 +2274,22 @@ namespace Sandbox.EditorTools
             foreach (SkinnedMeshRenderer renderer in avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 renderer.sharedMaterial = personMaterial;
 
+            // Every renderer above shares one Material *asset*, but
+            // AvatarCustomization recolors via Renderer.material (not
+            // sharedMaterial), which auto-instances a private copy the
+            // first time a given renderer is touched -- so wiring specific
+            // named meshes here lets the mirror recolor just that region
+            // (e.g. only the Shirt mesh) without affecting the others,
+            // even though they currently look like one uniform texture.
+            slots = EmptyCustomizationSlots();
+            slots.SkinRenderers = FindRenderersByName(avatar, "Body");
+            slots.ShirtRenderers = FindRenderersByName(avatar, "Shirt", "Sweatshirt");
+            slots.LegsRenderers = FindRenderersByName(avatar, "Pants");
+            slots.HairRenderers = FindRenderersByName(avatar, "Hair");
+            // No separate eye/lips meshes on this model -- those rows stay
+            // inert no-ops for MikeAlger, same as before.
+
             Animator animator = avatar.GetComponentInChildren<Animator>();
-            hats = glasses = backpacks = System.Array.Empty<GameObject>();
             if (animator != null)
             {
                 animator.runtimeAnimatorController = controller;
@@ -2263,7 +2301,7 @@ namespace Sandbox.EditorTools
                 animator.applyRootMotion = false;
 
                 SampleIdlePoseForAccessories(avatar);
-                BuildBodyAccessories(animator, "MikeAlger", out hats, out glasses, out backpacks);
+                BuildBodyAccessories(animator, "MikeAlger", out slots.Hats, out slots.Glasses, out slots.Backpacks);
             }
 
             return avatar;
@@ -2273,13 +2311,13 @@ namespace Sandbox.EditorTools
         // texture, this one ships 9 distinct materials (confirmed via
         // CartoonGirlModelInspector), so it needs its own material setup
         // rather than reusing MikeAlger's one-texture-for-everything path.
-        private static GameObject BuildCartoonGirlBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        private static GameObject BuildCartoonGirlBody(Transform parent, RuntimeAnimatorController controller, out BodyCustomizationSlots slots)
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(CartoonGirlModelPath);
             if (prefab == null)
             {
                 Debug.LogError($"SceneBootstrapper: missing model at {CartoonGirlModelPath}");
-                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                slots = EmptyCustomizationSlots();
                 return new GameObject("CartoonGirl");
             }
 
@@ -2299,15 +2337,27 @@ namespace Sandbox.EditorTools
 
             ApplyCartoonGirlMaterials(avatar);
 
+            // Genuinely separable regions (see ApplyCartoonGirlMaterials'
+            // material grouping above) -- found here by GameObject name
+            // rather than material name, since that stays stable regardless
+            // of the material reassignment that already happened.
+            slots = EmptyCustomizationSlots();
+            slots.SkinRenderers = FindRenderersByName(avatar, "body_geo", "head_geo");
+            slots.ShirtRenderers = FindRenderersByName(avatar, "cloth_geo", "skirt_geo", "button_geo");
+            slots.HairRenderers = FindRenderersByName(avatar, "hair_geo");
+            slots.EyesRenderers = FindRenderersByName(avatar, "L_eye_geo", "R_eye_geo");
+            // No distinct pants/lips region -- her outfit is one cloth
+            // material covering both shirt and skirt, and lips are part of
+            // the face texture, so those two rows stay inert for her.
+
             Animator animator = avatar.GetComponentInChildren<Animator>();
-            hats = glasses = backpacks = System.Array.Empty<GameObject>();
             if (animator != null)
             {
                 animator.runtimeAnimatorController = controller;
                 animator.applyRootMotion = false;
 
                 SampleIdlePoseForAccessories(avatar);
-                BuildBodyAccessories(animator, "CartoonGirl", out hats, out glasses, out backpacks);
+                BuildBodyAccessories(animator, "CartoonGirl", out slots.Hats, out slots.Glasses, out slots.Backpacks);
             }
 
             return avatar;
@@ -2356,13 +2406,13 @@ namespace Sandbox.EditorTools
         // material (confirmed via ChibiGirlModelInspector), so it follows
         // MikeAlger's one-texture pattern rather than CartoonGirl's
         // per-region material split.
-        private static GameObject BuildChibiGirlBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        private static GameObject BuildChibiGirlBody(Transform parent, RuntimeAnimatorController controller, out BodyCustomizationSlots slots)
         {
             GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(ChibiGirlModelPath);
             if (prefab == null)
             {
                 Debug.LogError($"SceneBootstrapper: missing model at {ChibiGirlModelPath}");
-                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                slots = EmptyCustomizationSlots();
                 return new GameObject("ChibiGirl");
             }
 
@@ -2385,15 +2435,19 @@ namespace Sandbox.EditorTools
             foreach (SkinnedMeshRenderer renderer in avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true))
                 renderer.sharedMaterial = chibiMaterial;
 
+            // A single mesh/material with no separable regions (confirmed
+            // via ChibiGirlModelInspector) -- all color rows stay inert
+            // no-ops for this body; only accessories are wired below.
+            slots = EmptyCustomizationSlots();
+
             Animator animator = avatar.GetComponentInChildren<Animator>();
-            hats = glasses = backpacks = System.Array.Empty<GameObject>();
             if (animator != null)
             {
                 animator.runtimeAnimatorController = controller;
                 animator.applyRootMotion = false;
 
                 SampleIdlePoseForAccessories(avatar);
-                BuildBodyAccessories(animator, "ChibiGirl", out hats, out glasses, out backpacks);
+                BuildBodyAccessories(animator, "ChibiGirl", out slots.Hats, out slots.Glasses, out slots.Backpacks);
             }
 
             return avatar;
@@ -2414,6 +2468,61 @@ namespace Sandbox.EditorTools
         {
             AnimationClip idleClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().First(c => c.name == "Armature|Standing");
             idleClip.SampleAnimation(avatar, 0f);
+        }
+
+        // Unity's serializer can't persist a jagged array (GameObject[][]
+        // / Renderer[][]) -- the field just silently never gets written to
+        // the scene file. AvatarCustomization's per-body fields are
+        // therefore arrays of a plain wrapper class instead; these two
+        // overloads build that wrapper array from the plain per-body arrays
+        // gathered while building each body.
+        private static AvatarCustomization.GameObjectGroup[] WrapGroups(params GameObject[][] arrays)
+        {
+            var groups = new AvatarCustomization.GameObjectGroup[arrays.Length];
+            for (int i = 0; i < arrays.Length; i++)
+                groups[i] = new AvatarCustomization.GameObjectGroup { objects = arrays[i] };
+            return groups;
+        }
+
+        private static AvatarCustomization.RendererGroup[] WrapGroups(params Renderer[][] arrays)
+        {
+            var groups = new AvatarCustomization.RendererGroup[arrays.Length];
+            for (int i = 0; i < arrays.Length; i++)
+                groups[i] = new AvatarCustomization.RendererGroup { renderers = arrays[i] };
+            return groups;
+        }
+
+        private static BodyCustomizationSlots EmptyCustomizationSlots()
+        {
+            return new BodyCustomizationSlots
+            {
+                Hats = System.Array.Empty<GameObject>(),
+                Glasses = System.Array.Empty<GameObject>(),
+                Backpacks = System.Array.Empty<GameObject>(),
+                ShirtRenderers = System.Array.Empty<Renderer>(),
+                SkinRenderers = System.Array.Empty<Renderer>(),
+                LegsRenderers = System.Array.Empty<Renderer>(),
+                HairRenderers = System.Array.Empty<Renderer>(),
+                EyesRenderers = System.Array.Empty<Renderer>(),
+                LipsRenderers = System.Array.Empty<Renderer>(),
+            };
+        }
+
+        // Looks up specific skinned meshes by their known GameObject name
+        // (stable regardless of any later material reassignment) so a
+        // mirror color row can target just that region -- e.g. MikeAlger's
+        // "Shirt"/"Sweatshirt" meshes, or CartoonGirl's "hair_geo".
+        private static Renderer[] FindRenderersByName(GameObject avatar, params string[] names)
+        {
+            SkinnedMeshRenderer[] all = avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true);
+            var matches = new List<Renderer>();
+            foreach (string name in names)
+            {
+                SkinnedMeshRenderer match = System.Array.Find(all, r => r.name == name);
+                if (match != null)
+                    matches.Add(match);
+            }
+            return matches.ToArray();
         }
 
         // Only hats/glasses/backpacks (genuinely additive, not replacing
