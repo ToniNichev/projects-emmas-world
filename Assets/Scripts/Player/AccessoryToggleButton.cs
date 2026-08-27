@@ -3,13 +3,13 @@ using UnityEngine;
 namespace Sandbox.Player
 {
     // A single mirror accessory option (a hat style, a glasses color, a
-    // backpack color, ...). Stores its own category/index as plain
+    // backpack color, which body to use, ...). Stores its own category/index as plain
     // serialized fields for the same reason ColorSwatchButton stores its
     // color that way: UnityEventTools.AddPersistentListener binds a
     // zero-argument method reference, not an arbitrary argument value.
     public class AccessoryToggleButton : MonoBehaviour
     {
-        public enum Category { Hat, Glasses, Backpack }
+        public enum Category { Hat, Glasses, Backpack, Body }
 
         [SerializeField] private AvatarCustomization customization;
         [SerializeField] private Category category;
@@ -30,6 +30,9 @@ namespace Sandbox.Player
                     break;
                 case Category.Backpack:
                     customization.SetBackpack(index);
+                    break;
+                case Category.Body:
+                    customization.SetBody(index);
                     break;
             }
         }

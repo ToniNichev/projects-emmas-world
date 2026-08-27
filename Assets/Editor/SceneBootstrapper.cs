@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1724,7 +1725,7 @@ namespace Sandbox.EditorTools
             panelRect.anchorMin = new Vector2(1f, 1f);
             panelRect.anchorMax = new Vector2(1f, 1f);
             panelRect.pivot = new Vector2(1f, 1f);
-            panelRect.sizeDelta = new Vector2(420f, 675f);
+            panelRect.sizeDelta = new Vector2(420f, 740f);
             panelRect.anchoredPosition = new Vector2(-20f, -40f);
             Image panelBackground = panel.AddComponent<Image>();
             panelBackground.color = new Color(0f, 0f, 0f, 0.55f);
@@ -1771,6 +1772,8 @@ namespace Sandbox.EditorTools
             };
             BuildSwatchRow(panel.transform, "Eyes", 7, eyeColors, ColorSwatchButton.Target.Eyes, customization);
             BuildSwatchRow(panel.transform, "Lips", 8, lipColors, ColorSwatchButton.Target.Lips, customization);
+
+            BuildAccessoryRow(panel.transform, "Body", 9, new[] { "Mike", "Girl" }, AccessoryToggleButton.Category.Body, customization);
 
             return panel;
         }
@@ -2135,33 +2138,82 @@ namespace Sandbox.EditorTools
         private const string PersonModelPath = "Assets/Models/Imported/PersonAnimated.fbx";
 
         // Real rigged/textured CC-Attribution humanoid (see
-        // Assets/Models/Imported/README-MikeAlger.txt) used as the local
-        // player's visual, in place of PersonAnimated's bare-skin mesh.
-        private const string PersonVisualModelPath = "Assets/Models/Imported/MikeAlger.fbx";
+        // Assets/Models/Imported/README-MikeAlger.txt) -- one of two
+        // selectable local-player visuals, in place of PersonAnimated's
+        // bare-skin mesh.
+        private const string MikeAlgerModelPath = "Assets/Models/Imported/MikeAlger.fbx";
 
-        // Replacing the procedural cube avatar for the local player. Left
-        // parented under the same CharacterController-holding root as the
-        // cube avatar was, so nothing about collision/camera/multiplayer
-        // sync needs to change -- only what's visually attached differs.
+        // Kid-friendly cartoon humanoid (see
+        // Assets/Models/Imported/README-CartoonGirl.txt) -- the other
+        // selectable visual, picked from the mirror's new Body row.
+        private const string CartoonGirlModelPath = "Assets/Models/Imported/CartoonGirl.fbx";
+
+        // Both selectable bodies live as siblings under one "Avatar" root,
+        // only one active at a time (AvatarCustomization.SetBody), so
+        // switching in the mirror is just a SetActive toggle plus
+        // repointing HumanoidAnimatorDriver at the newly active skeleton's
+        // Animator -- see AvatarCustomization.cs. Left parented under the
+        // same CharacterController-holding root the cube avatar used, so
+        // nothing about collision/camera/multiplayer sync needs to change.
         private static GameObject BuildRealisticAvatarVisual(Transform parent)
         {
             // Forces PersonAnimatedImporter's OnPreprocessAnimation (loop-time
             // fix) to actually re-run -- Unity won't otherwise know to
             // reimport an already-imported FBX just because the postprocessor
             // script that touches its clip settings changed. Still needed
-            // even though this model is no longer the visible mesh, since
-            // its clips (loaded below) are what the Animator actually plays.
+            // even though this model is no longer a visible mesh, since its
+            // clips (loaded below, by both bodies) are what the Animator
+            // actually plays.
             AssetDatabase.ImportAsset(PersonModelPath, ImportAssetOptions.ForceUpdate);
 
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PersonVisualModelPath);
+            GameObject avatarRoot = new GameObject("Avatar");
+            avatarRoot.transform.SetParent(parent, false);
+
+            // Built once and shared: both bodies play the exact same
+            // Idle/Walk/Run state machine, and CreateAnimatorControllerAtPath
+            // would throw (or silently clobber) if called at this same
+            // asset path twice.
+            RuntimeAnimatorController controller = BuildPersonAnimatorController();
+
+            GameObject mikeAlgerBody = BuildMikeAlgerBody(avatarRoot.transform, controller, out GameObject[] mikeHats, out GameObject[] mikeGlasses, out GameObject[] mikeBackpacks);
+            GameObject cartoonGirlBody = BuildCartoonGirlBody(avatarRoot.transform, controller, out GameObject[] girlHats, out GameObject[] girlGlasses, out GameObject[] girlBackpacks);
+
+            GameObject[] bodies = { mikeAlgerBody, cartoonGirlBody };
+            // MikeAlger active by default at build time; AvatarCustomization's
+            // own Awake() re-applies whatever was last picked (PlayerPrefs)
+            // before the first frame renders.
+            for (int i = 0; i < bodies.Length; i++)
+                bodies[i].SetActive(i == 0);
+
+            AvatarCustomization customization = parent.gameObject.AddComponent<AvatarCustomization>();
+            SetPrivateField(customization, "bodies", bodies);
+            SetPrivateField(customization, "hatsByBody", new[] { mikeHats, girlHats });
+            SetPrivateField(customization, "glassesByBody", new[] { mikeGlasses, girlGlasses });
+            SetPrivateField(customization, "backpacksByBody", new[] { mikeBackpacks, girlBackpacks });
+            // "animatorDriver" is wired in BuildPlayer instead -- the
+            // HumanoidAnimatorDriver component doesn't exist yet at this
+            // point in the call chain.
+
+            return avatarRoot;
+        }
+
+        // MikeAlger ships its own modeled/textured clothes (separate Body/
+        // Sweatshirt/Pants/Shirt/Shoes/Hair/Bracelet skinned meshes), so
+        // unlike the old bare-skin PersonAnimated mesh there's no need to
+        // bolt primitive capsule/cube clothing onto the rig -- that would
+        // just float redundantly over geometry that's already there.
+        private static GameObject BuildMikeAlgerBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(MikeAlgerModelPath);
             if (prefab == null)
             {
-                Debug.LogError($"SceneBootstrapper: missing model at {PersonVisualModelPath}");
-                return new GameObject("Avatar");
+                Debug.LogError($"SceneBootstrapper: missing model at {MikeAlgerModelPath}");
+                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                return new GameObject("MikeAlger");
             }
 
             GameObject avatar = Object.Instantiate(prefab, parent);
-            avatar.name = "Avatar";
+            avatar.name = "MikeAlger";
             // The model's own origin sits at its feet (a one-off bone dump
             // via MikeAlgerModelInspector showed combined mesh bounds of
             // roughly y -0.14 to +1.80, with the root transform at y=0), so
@@ -2193,9 +2245,10 @@ namespace Sandbox.EditorTools
                 renderer.sharedMaterial = personMaterial;
 
             Animator animator = avatar.GetComponentInChildren<Animator>();
+            hats = glasses = backpacks = System.Array.Empty<GameObject>();
             if (animator != null)
             {
-                animator.runtimeAnimatorController = BuildPersonAnimatorController();
+                animator.runtimeAnimatorController = controller;
                 // The state machine only needs to pose the bones -- movement
                 // itself is entirely CharacterController.Move, driven by
                 // ThirdPersonController, same as it was for the cube avatar's
@@ -2203,63 +2256,137 @@ namespace Sandbox.EditorTools
                 // would otherwise fight that and cause sliding/drift.
                 animator.applyRootMotion = false;
 
-                // Accessories below are fixed offsets computed from each
-                // bone's CURRENT rotation at the moment they're built. Left
-                // alone, that moment is the FBX's raw T-pose bind pose (arms
-                // out) -- but the Animator's default state is Idle, which
-                // poses the skeleton very differently (arms down) the
-                // instant Play starts. Sampling the idle clip's first frame
-                // here first means those fixed offsets are computed against
-                // the pose the character actually rests in at runtime, which
-                // is what keeps a bone-anchored piece from reading as rotated
-                // away from the limb it's supposed to sit on. The clip comes
-                // from PersonModelPath (this model ships none of its own)
-                // and retargets onto this avatar via the shared Humanoid rig.
-                AnimationClip idleClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().First(c => c.name == "Armature|Standing");
-                idleClip.SampleAnimation(avatar, 0f);
-
-                BuildRealisticAccessories(parent.gameObject, animator);
+                SampleIdlePoseForAccessories(avatar);
+                BuildBodyAccessories(animator, "MikeAlger", out hats, out glasses, out backpacks);
             }
 
             return avatar;
         }
 
-        // MikeAlger ships its own modeled/textured clothes (separate Body/
-        // Sweatshirt/Pants/Shirt/Shoes/Hair/Bracelet skinned meshes), so
-        // unlike the old bare-skin PersonAnimated mesh there's no need to
-        // bolt primitive capsule/cube clothing onto the rig -- that would
-        // just float redundantly over geometry that's already there. Only
-        // hats/glasses/backpacks (genuinely additive, not replacing
-        // anything already modeled) still get bone-anchored here.
-        private static void BuildRealisticAccessories(GameObject player, Animator animator)
+        // Kid-friendly cartoon model -- unlike MikeAlger's single shared
+        // texture, this one ships 9 distinct materials (confirmed via
+        // CartoonGirlModelInspector), so it needs its own material setup
+        // rather than reusing MikeAlger's one-texture-for-everything path.
+        private static GameObject BuildCartoonGirlBody(Transform parent, RuntimeAnimatorController controller, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
+        {
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(CartoonGirlModelPath);
+            if (prefab == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing model at {CartoonGirlModelPath}");
+                hats = glasses = backpacks = System.Array.Empty<GameObject>();
+                return new GameObject("CartoonGirl");
+            }
+
+            GameObject avatar = Object.Instantiate(prefab, parent);
+            avatar.name = "CartoonGirl";
+            // Combined mesh bounds (via CartoonGirlModelInspector) run from
+            // y -0.02 to +1.26 with the root already essentially at the
+            // feet -- same -1 offset as MikeAlger, well within the couple-cm
+            // tolerance already accepted for that model's own overhang.
+            avatar.transform.localPosition = new Vector3(0f, -1f, 0f);
+            avatar.transform.localRotation = Quaternion.identity;
+
+            foreach (Camera strayCamera in avatar.GetComponentsInChildren<Camera>(true))
+                Object.DestroyImmediate(strayCamera.gameObject);
+            foreach (Light strayLight in avatar.GetComponentsInChildren<Light>(true))
+                Object.DestroyImmediate(strayLight.gameObject);
+
+            ApplyCartoonGirlMaterials(avatar);
+
+            Animator animator = avatar.GetComponentInChildren<Animator>();
+            hats = glasses = backpacks = System.Array.Empty<GameObject>();
+            if (animator != null)
+            {
+                animator.runtimeAnimatorController = controller;
+                animator.applyRootMotion = false;
+
+                SampleIdlePoseForAccessories(avatar);
+                BuildBodyAccessories(animator, "CartoonGirl", out hats, out glasses, out backpacks);
+            }
+
+            return avatar;
+        }
+
+        // CartoonGirl.fbx groups its 24 skinned meshes under 9 original
+        // material names (confirmed via CartoonGirlModelInspector): face
+        // (body_geo + head_geo), cloth (button/cloth/skirt_geo), hair, eye,
+        // teeth, Briefs (hidden under clothing), and a generically-named
+        // "lambert9" covering every shoe/sock/lace mesh. brow/eyelash ship
+        // no texture of their own, so they get flat colors instead.
+        private static void ApplyCartoonGirlMaterials(GameObject avatar)
+        {
+            var materialsByOriginalName = new Dictionary<string, Material>
+            {
+                ["face"] = BuildCartoonGirlMaterial("CartoonGirlFace", "CartoonGirl_face_color.jpg", new Color(0.95f, 0.8f, 0.65f)),
+                ["cloth"] = BuildCartoonGirlMaterial("CartoonGirlCloth", "CartoonGirl_cloth_color.jpg", Color.white),
+                ["hair"] = BuildCartoonGirlMaterial("CartoonGirlHair", "CartoonGirl_hair_color.jpg", new Color(0.8f, 0.4f, 0.15f)),
+                ["eye"] = BuildCartoonGirlMaterial("CartoonGirlEye", "CartoonGirl_eye_color.jpg", Color.black),
+                ["teeth"] = BuildCartoonGirlMaterial("CartoonGirlTeeth", "CartoonGirl_teeth_color.jpg", Color.white),
+                ["Briefs"] = BuildCartoonGirlMaterial("CartoonGirlBriefs", "CartoonGirl_Briefs_color.jpg", Color.white),
+                ["lambert9"] = BuildCartoonGirlMaterial("CartoonGirlShoe", "CartoonGirl_shoe_color.jpg", new Color(0.9f, 0.3f, 0.5f)),
+                ["brow"] = BuildCartoonGirlMaterial("CartoonGirlBrow", null, new Color(0.35f, 0.2f, 0.1f)),
+                ["eyelash"] = BuildCartoonGirlMaterial("CartoonGirlEyelash", null, new Color(0.1f, 0.1f, 0.1f)),
+            };
+
+            foreach (SkinnedMeshRenderer renderer in avatar.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                string originalName = renderer.sharedMaterial != null ? renderer.sharedMaterial.name : null;
+                if (originalName != null && materialsByOriginalName.TryGetValue(originalName, out Material replacement))
+                    renderer.sharedMaterial = replacement;
+                else
+                    Debug.LogWarning($"SceneBootstrapper: CartoonGirl renderer '{renderer.name}' has unrecognized material '{originalName}' -- leaving as imported.");
+            }
+        }
+
+        private static Material BuildCartoonGirlMaterial(string name, string textureFileName, Color fallbackColor)
+        {
+            Material material = CreateMaterial(name, fallbackColor);
+            if (textureFileName != null)
+                ApplyImportedTexture(material, textureFileName, Vector2.one);
+            return material;
+        }
+
+        // Accessories below are fixed offsets computed from each bone's
+        // CURRENT rotation at the moment they're built. Left alone, that
+        // moment is the FBX's raw T-pose bind pose (arms out) -- but the
+        // Animator's default state is Idle, which poses the skeleton very
+        // differently (arms down) the instant Play starts. Sampling the
+        // idle clip's first frame here first means those fixed offsets are
+        // computed against the pose the character actually rests in at
+        // runtime, which is what keeps a bone-anchored piece from reading
+        // as rotated away from the limb it's supposed to sit on. The clip
+        // comes from PersonModelPath (neither selectable body ships its
+        // own) and retargets onto whichever avatar via the shared Humanoid rig.
+        private static void SampleIdlePoseForAccessories(GameObject avatar)
+        {
+            AnimationClip idleClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().First(c => c.name == "Armature|Standing");
+            idleClip.SampleAnimation(avatar, 0f);
+        }
+
+        // Only hats/glasses/backpacks (genuinely additive, not replacing
+        // anything already modeled on either body) get bone-anchored here.
+        // Each selectable body gets its own set, since the anchors are tied
+        // to that specific skeleton's Head/Chest bones.
+        private static void BuildBodyAccessories(Animator animator, string modelName, out GameObject[] hats, out GameObject[] glasses, out GameObject[] backpacks)
         {
             Transform head = animator.GetBoneTransform(HumanBodyBones.Head);
             Transform chest = animator.GetBoneTransform(HumanBodyBones.Chest);
 
             if (head == null || chest == null)
             {
-                Debug.LogWarning("SceneBootstrapper: MikeAlger is missing an expected bone -- skipping accessories.");
+                Debug.LogWarning($"SceneBootstrapper: {modelName} is missing an expected bone -- skipping accessories.");
+                hats = glasses = backpacks = System.Array.Empty<GameObject>();
                 return;
             }
 
             Transform headAnchor = CreateWorldAlignedAnchor(head, "HeadAnchor");
             Transform chestAnchor = CreateWorldAlignedAnchor(chest, "ChestAnchor");
-            BuildAccessories(headAnchor, chestAnchor, out GameObject[] hats, out GameObject[] glassesOptions, out GameObject[] backpacks);
-
-            AvatarCustomization customization = player.AddComponent<AvatarCustomization>();
-            SetPrivateField(customization, "hats", hats);
-            SetPrivateField(customization, "glasses", glassesOptions);
-            SetPrivateField(customization, "backpacks", backpacks);
-            // Shirt/legs/skin/hair/eyes/lips stay unwired -- MikeAlger's own
-            // meshes/materials are what render those regions now, so the
-            // mirror's corresponding color rows stay harmless no-ops
-            // (ApplyColor no-ops on a null renderer array), same as
-            // skin/hair/eyes/lips already were for the old model.
+            BuildAccessories(headAnchor, chestAnchor, out hats, out glasses, out backpacks);
         }
 
         // An invisible child of a humanoid bone whose local rotation/scale
         // cancel that bone's own rest-pose rotation and scale -- lets
-        // anything parented under it (accessories, in BuildRealisticAccessories)
+        // anything parented under it (accessories, in BuildBodyAccessories)
         // use simple "meters, world-aligned" offsets regardless of how the
         // bone itself is oriented/scaled in its rest pose.
         private static Transform CreateWorldAlignedAnchor(Transform bone, string name)
@@ -2337,6 +2464,11 @@ namespace Sandbox.EditorTools
             HumanoidAnimatorDriver animatorDriver = player.AddComponent<HumanoidAnimatorDriver>();
             SetPrivateField(animatorDriver, "controller", controller);
             SetPrivateField(animatorDriver, "animator", avatar.GetComponentInChildren<Animator>());
+            // Lets AvatarCustomization.SetBody repoint this driver at the
+            // newly active body's own Animator when the player switches --
+            // added here, not in BuildRealisticAvatarVisual, since this
+            // component doesn't exist yet at that point in the call chain.
+            SetPrivateField(player.GetComponent<AvatarCustomization>(), "animatorDriver", animatorDriver);
 
             // Its own GameObject, named to match exactly -- the WebGL bridge's
             // SendMessage('MultiplayerManager', ...) calls look up a GameObject

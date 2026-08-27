@@ -28,5 +28,11 @@ namespace Sandbox.Player
             animator.SetBool("IsMoving", controller.IsMoving);
             animator.SetBool("IsSprinting", controller.IsSprinting);
         }
+
+        // Called by AvatarCustomization when the player switches bodies --
+        // each body has its own Animator (different skeleton), so the one
+        // this driver feeds IsMoving/IsSprinting into has to be repointed
+        // or the newly active body would just stand frozen in its bind pose.
+        public void SetAnimator(Animator newAnimator) => animator = newAnimator;
     }
 }
