@@ -142,9 +142,7 @@ namespace Sandbox.EditorTools
 
             Material tentMaterial = CreateMaterial("TentCanvas", new Color(0.75f, 0.62f, 0.4f));
             ApplyNoiseTexture(tentMaterial, "TentCanvasNoise", new Color(0.7f, 0.56f, 0.36f), new Color(0.82f, 0.68f, 0.46f), 0.3f, 0.6f);
-            Material robeMaterial = CreateMaterial("ElderRobe", new Color(0.35f, 0.28f, 0.42f));
-            ApplyNoiseTexture(robeMaterial, "ElderRobeNoise", new Color(0.3f, 0.24f, 0.38f), new Color(0.4f, 0.32f, 0.46f), 0.3f, 0.6f);
-            BuildElderTent(terrain, tentMaterial, robeMaterial, playerHeadMaterial);
+            BuildElderTent(terrain, tentMaterial);
 
             GameObject[] blockPrefabs = CreateShapePrefabs(blockMaterial);
             GameObject placedBlocks = new GameObject("PlacedBlocks");
@@ -751,9 +749,18 @@ namespace Sandbox.EditorTools
             GameObject courseRoot = new GameObject("ObstacleCourse");
 
             float baseY = terrain.SampleHeight(new Vector3(CourseStartX, 0f, CourseStartZ));
-            Color climbColor = new Color(0.9f, 0.6f, 0.2f);
-            Color startColor = new Color(0.3f, 0.55f, 0.95f);
-            Color finishColor = new Color(1f, 0.84f, 0.2f);
+            // Muted stone tones instead of the old bright plastic colors --
+            // the platforms already carry the same mortar-lined block
+            // texture as the placeable building blocks (blockPrefabs share
+            // that one material), so recoloring toward gray is most of what
+            // "looks like a castle" actually needed. Start/finish keep a
+            // distinguishing tint (cool flagstone vs. aged gold) rather than
+            // matching the plain climb-step gray exactly, so their
+            // gameplay role still reads at a glance.
+            Color climbColor = new Color(0.6f, 0.58f, 0.54f);
+            Color startColor = new Color(0.45f, 0.5f, 0.56f);
+            Color finishColor = new Color(0.75f, 0.65f, 0.35f);
+            Color turretColor = new Color(0.5f, 0.48f, 0.45f);
 
             // A spiral staircase around a fixed center point reads as an
             // actual climb (and looks more dramatic) rather than a flat
@@ -764,11 +771,39 @@ namespace Sandbox.EditorTools
             const float radius = 4.2f;
             const float angleStepDegrees = 32f;
             const float heightStep = 1.15f;
-            const int climbSteps = 12;
-            var shapes = new[] { 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2 }; // cube-heavy, wedge/cylinder/ball for variety
+            // Was 12 -- same per-step radius/angle/height (the validated
+            // jump math above is untouched), just more of them, for a
+            // taller finish without changing how any single jump feels.
+            const int climbSteps = 14;
+            // Cube and Cylinder only -- both have a genuinely flat top, so
+            // landing on any climb step always gives a straight-up ground
+            // normal. Wedge and Ball used to appear here too for variety,
+            // but Wedge's whole top is a sloped ramp (only its knife-edge
+            // ridge is flat) and Ball's top is a dome curving away from
+            // vertical the instant you're off-center -- both regularly
+            // landed with a ground normal shallow enough to fail
+            // ThirdPersonController.TriggerJump's lastGroundNormalY > 0.7f
+            // check, so jumping from those specific steps just silently
+            // didn't work.
+            var shapes = new[] { 0, 2, 0, 0, 2, 0, 0, 2, 0, 0, 2, 0 };
 
             Vector3 startPos = new Vector3(CourseStartX + radius, baseY + 0.5f, CourseStartZ);
             CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], startPos, new Vector3(3f, 1f, 3f), startColor);
+            CreateCrenellations(courseRoot.transform, blockPrefabs[0], startPos, 1.5f, turretColor, 10);
+
+            // Two flanking towers read as a gatehouse at the entrance --
+            // rising from the ground (not the elevated start platform), and
+            // tall enough to clear it, so they visibly frame the entrance
+            // rather than floating at platform height. Offset along the
+            // tangent (perpendicular to the spiral's radial direction at
+            // this point) rather than a fixed world axis, so they sit
+            // squarely to either side of the start platform regardless of
+            // where CourseStartX/Z happen to place it.
+            Vector3 startTangent = new Vector3(0f, 0f, 1f);
+            Vector3 startGroundPos = new Vector3(startPos.x, baseY, startPos.z);
+            float turretHeight = (startPos.y - baseY) + 4f;
+            CreateTurret(courseRoot.transform, blockPrefabs[2], blockPrefabs[0], startGroundPos + startTangent * 3f, turretHeight, 2f, turretColor);
+            CreateTurret(courseRoot.transform, blockPrefabs[2], blockPrefabs[0], startGroundPos - startTangent * 3f, turretHeight, 2f, turretColor);
 
             // Every step's position gets kept around so a couple of the gaps
             // can be bridged with a walk-across obstacle afterward instead
@@ -787,6 +822,48 @@ namespace Sandbox.EditorTools
                 stepPositions[i] = pos;
             }
 
+            // "Rampart Walk" -- a genuine second route, not just another
+            // obstacle bolted onto the same path. Forks right at the start
+            // platform and now rejoins the main spiral at step 9 (extended
+            // from the original step 6, so this route also bypasses the
+            // teeter-totter section entirely rather than only covering the
+            // first quarter of the climb), riding a chain of moving
+            // platforms between waypoint landings out at a wider radius
+            // than the jump-based spiral -- deliberately too far apart to
+            // jump between (that's the point: this route commits you to
+            // riding the platforms, not an option to skip past them), so it
+            // plays completely differently from Path A's jump-and-climb
+            // even though both end up at the same place.
+            const float rampartRadius = radius + 3f;
+            const int rampartMergeStep = 9;
+            // One waypoint per even step index below the merge point (2,4,6,8) --
+            // (rampartMergeStep - 1) / 2 gives 4 here, not rampartMergeStep - 1
+            // itself (that would walk stepIndex past climbSteps and index
+            // stepPositions out of range).
+            var rampartWaypoints = new Vector3[(rampartMergeStep - 1) / 2];
+            for (int w = 0; w < rampartWaypoints.Length; w++)
+            {
+                int stepIndex = (w + 1) * 2;
+                float angleRad = stepIndex * angleStepDegrees * Mathf.Deg2Rad;
+                Vector3 waypoint = new Vector3(
+                    CourseStartX + rampartRadius * Mathf.Cos(angleRad),
+                    stepPositions[stepIndex].y,
+                    CourseStartZ + rampartRadius * Mathf.Sin(angleRad));
+                rampartWaypoints[w] = waypoint;
+
+                CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], waypoint, new Vector3(1.4f, 1f, 1.4f), climbColor);
+                CreateCrenellations(courseRoot.transform, blockPrefabs[0], waypoint, 0.7f, turretColor, 6);
+            }
+
+            Color movingPlatformColor = new Color(0.5f, 0.3f, 0.6f);
+            Vector3 rampartPrevious = startPos;
+            foreach (Vector3 waypoint in rampartWaypoints)
+            {
+                CreateMovingPlatform(courseRoot.transform, blockPrefabs[0], rampartPrevious, waypoint, movingPlatformColor);
+                rampartPrevious = waypoint;
+            }
+            CreateMovingPlatform(courseRoot.transform, blockPrefabs[0], rampartPrevious, stepPositions[rampartMergeStep], movingPlatformColor);
+
             // Finish platform: continues the spiral one more step, big and
             // gold at the top -- unmistakably the summit.
             float finishAngle = (climbSteps + 1) * angleStepDegrees * Mathf.Deg2Rad;
@@ -796,14 +873,84 @@ namespace Sandbox.EditorTools
                 finishHeight,
                 CourseStartZ + radius * Mathf.Sin(finishAngle));
             CreateCoursePlatform(courseRoot.transform, blockPrefabs[0], finishPos, new Vector3(3.5f, 1f, 3.5f), finishColor);
+            CreateCrenellations(courseRoot.transform, blockPrefabs[0], finishPos, 1.75f, turretColor, 12);
 
-            // A narrow plank and a tilting seesaw bridge two of the jump
-            // gaps partway up the climb -- walkable instead of jumpable,
-            // for obstacle variety rather than just more jumps.
+            // A narrow staircase and a tilting seesaw bridge two of the
+            // jump gaps partway up the climb -- walkable instead of
+            // jumpable, for obstacle variety rather than just more jumps.
+            // The narrow crossing used to be a single tilted plank
+            // (CreateSkinnyBeam rotates to match the slope between its two
+            // endpoints); standing anywhere on that slope gave a ground
+            // normal shallow enough to fail the jump-height check, same
+            // problem as the Wedge steps above. CreateStaircase's
+            // individual treads are flat, so that's no longer an issue.
             Color skinnyColor = new Color(0.55f, 0.35f, 0.15f);
             Color teeterColor = new Color(0.6f, 0.4f, 0.2f);
-            CreateSkinnyBeam(courseRoot.transform, blockPrefabs[0], stepPositions[3], stepPositions[4], skinnyColor);
-            CreateTeeterTotter(courseRoot.transform, blockPrefabs[0], stepPositions[7], stepPositions[8], teeterColor);
+            CreateStaircase(courseRoot.transform, blockPrefabs[0], stepPositions[3], stepPositions[4], skinnyColor, width: 0.9f);
+            CreateTeeterTotter(courseRoot.transform, blockPrefabs[0], stepPositions[7], stepPositions[8], teeterColor, maxTiltDegrees: 12f);
+
+            // Two more moving platforms along the shared upper path (beyond
+            // the three the Rampart Walk fork already uses) -- "constantly
+            // moving passes" plural was the actual ask, and one instance
+            // read as a one-off rather than a course feature.
+            CreateMovingPlatform(courseRoot.transform, blockPrefabs[0], stepPositions[5], stepPositions[6], movingPlatformColor);
+            CreateMovingPlatform(courseRoot.transform, blockPrefabs[0], stepPositions[9], stepPositions[10], movingPlatformColor);
+
+            Color ladderColor = new Color(0.45f, 0.32f, 0.18f);
+            // Anchored near step 1's angle but pulled in to a smaller
+            // radius rather than sitting on stepPositions[1] itself -- at
+            // the full spiral radius this landed only ~1 unit from the
+            // entrance gatehouse turret's center, close enough that the
+            // ladder's trigger volume (1.5x1x2) overlapped the turret's
+            // own collider (radius 1). The two blended into what read as
+            // one climbable object flush against the tower.
+            const float firstLadderRadius = radius - 1.6f;
+            float firstLadderAngleRad = 1 * angleStepDegrees * Mathf.Deg2Rad;
+            Vector3 ladderBottom = new Vector3(
+                CourseStartX + firstLadderRadius * Mathf.Cos(firstLadderAngleRad),
+                stepPositions[1].y,
+                CourseStartZ + firstLadderRadius * Mathf.Sin(firstLadderAngleRad));
+            Vector3 ladderTop = new Vector3(ladderBottom.x, ladderBottom.y + heightStep * 3f, ladderBottom.z);
+            CreateLadder(courseRoot.transform, blockPrefabs[0], ladderBottom, ladderTop, ladderColor);
+
+            // A staircase alongside every remaining gap that doesn't
+            // already have a dedicated crossing (beam/teeter/moving
+            // platform) -- turns the spiral into an actual walkable
+            // staircase the whole way up, with jumping as an optional
+            // shortcut rather than a mandatory sequence of precision
+            // jumps. This is the direct fix for the course reading as "not
+            // doable": there's always a safe, walkable way from one step
+            // to the next. Was a single tilted plank per gap
+            // (CreateSkinnyBeam) -- since this is the main route most
+            // players actually use, every one of those slopes was a spot
+            // where standing still to line up a jump silently failed
+            // (shallow ground normal, same root cause as the Wedge climb
+            // steps). CreateStaircase's flat treads read as literal stairs
+            // and don't have that problem anywhere along the route.
+            var gapsWithDedicatedCrossing = new HashSet<int> { 3, 5, 7, 9 }; // gap i = step i to step i+1
+            Color railColor = new Color(0.55f, 0.53f, 0.5f);
+            for (int i = 0; i <= climbSteps; i++)
+            {
+                if (gapsWithDedicatedCrossing.Contains(i))
+                    continue;
+
+                Vector3 from = stepPositions[i];
+                Vector3 to = i == climbSteps ? finishPos : stepPositions[i + 1];
+                CreateStaircase(courseRoot.transform, blockPrefabs[0], from, to, railColor, width: 1.4f);
+            }
+
+            // Third route, and the easy-mode option: a tall central shaft
+            // straight up through the middle of the spiral, well inside
+            // both Path A's radius and the Rampart Walk's, running the
+            // *entire* height from start to finish. Ladders need no jump
+            // timing or balance at all (just holding forward), so this is
+            // the guaranteed-safe way up for anyone finding the other
+            // routes too hard -- slower than jumping the spiral, but never
+            // harder than "keep holding forward."
+            const float shortcutRadius = radius - 2.2f;
+            Vector3 shortcutBottom = new Vector3(CourseStartX + shortcutRadius, baseY + 0.5f, CourseStartZ);
+            Vector3 shortcutTop = new Vector3(shortcutBottom.x, finishPos.y, shortcutBottom.z);
+            CreateLadder(courseRoot.transform, blockPrefabs[0], shortcutBottom, shortcutTop, ladderColor);
 
             // Timer: starts when the player steps onto the start platform,
             // stops when they press the red button waiting on the finish
@@ -836,10 +983,34 @@ namespace Sandbox.EditorTools
             // build-lock boundary line up exactly -- a box zone (the
             // original design) wouldn't match a circular fence in every
             // direction (its corners reach further out than its
-            // straight edges).
-            const float fenceRadius = radius + 2.2f;
-            const float zoneRadius = radius + 3f;
+            // straight edges). Based on rampartRadius (not the inner
+            // radius) now that the Rampart Walk fork extends the course's
+            // actual footprint out that far -- otherwise the fence/zone
+            // would cut through the middle of that route instead of
+            // enclosing it. Still comfortably inside CourseExclusionRadius
+            // (12) used elsewhere to keep scattered props clear.
+            const float fenceRadius = rampartRadius + 2.2f;
+            const float zoneRadius = rampartRadius + 3f;
             float totalHeight = finishHeight - baseY;
+
+            // Four corner towers ring the whole course (not just the two
+            // gatehouse towers at the entrance) for a proper fortress
+            // silhouette from any angle -- sized to a good fraction of the
+            // climb's own height so they read as guarding the tower rather
+            // than being dwarfed by it. Sits between the Rampart Walk's own
+            // radius and the fence, so it doesn't collide with either.
+            const float cornerTowerRadius = rampartRadius + 1.3f;
+            float cornerTowerHeight = totalHeight * 0.6f;
+            for (int corner = 0; corner < 4; corner++)
+            {
+                float cornerAngle = corner * 90f * Mathf.Deg2Rad;
+                Vector3 cornerPos = new Vector3(
+                    CourseStartX + cornerTowerRadius * Mathf.Cos(cornerAngle),
+                    baseY,
+                    CourseStartZ + cornerTowerRadius * Mathf.Sin(cornerAngle));
+                CreateTurret(courseRoot.transform, blockPrefabs[2], blockPrefabs[0], cornerPos, cornerTowerHeight, 2.2f, turretColor);
+            }
+
             BuildAttractionFence(courseRoot.transform, blockPrefabs[0], new Vector3(CourseStartX, baseY, CourseStartZ), fenceRadius);
 
             Vector3 zoneCenter = new Vector3(CourseStartX, baseY + totalHeight / 2f + 1f, CourseStartZ);
@@ -854,26 +1025,41 @@ namespace Sandbox.EditorTools
             zoneGo.AddComponent<NoBuildZone>();
         }
 
-        // A narrow plank bridging two course steps -- no jump needed, but
-        // the width leaves little margin for error walking across.
-        private static void CreateSkinnyBeam(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color)
+        // A short flight of flat stair treads bridging two course steps --
+        // no jump needed to cross, and every tread is perfectly level, so
+        // standing anywhere along the crossing still allows jumping.
+        // Replaces an earlier single-plank version that rotated to match
+        // the exact slope between its two endpoints: standing on that
+        // slope gave a ground normal shallow enough to fail
+        // ThirdPersonController.TriggerJump's grounded-surface check,
+        // right on what was meant to be the safe, easy route.
+        // width defaults to the original narrow balance-beam size (a
+        // deliberate challenge at the one spot that first used this), but
+        // callers building an easy connecting walkway instead (see the
+        // gap-filling rail loop in BuildObstacleCourse) pass something
+        // wider so crossing doesn't need any balance at all.
+        private static void CreateStaircase(Transform parent, GameObject cubePrefab, Vector3 from, Vector3 to, Color color, float width = 0.5f, int treadCount = 3)
         {
-            Vector3 mid = (pointA + pointB) / 2f;
-            Vector3 direction = pointB - pointA;
-            float length = direction.magnitude;
-
-            GameObject beam = Object.Instantiate(cubePrefab, mid, Quaternion.FromToRotation(Vector3.right, direction.normalized), parent);
-            beam.name = "SkinnyBeam";
-            beam.transform.localScale = new Vector3(length, 0.3f, 0.5f);
-            Renderer renderer = beam.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.material.color = color;
+            for (int i = 1; i <= treadCount; i++)
+            {
+                float t = (float)i / (treadCount + 1);
+                Vector3 pos = Vector3.Lerp(from, to, t);
+                GameObject tread = Object.Instantiate(cubePrefab, pos, Quaternion.identity, parent);
+                tread.name = "StairTread";
+                tread.transform.localScale = new Vector3(width, 0.3f, width);
+                Renderer renderer = tread.GetComponent<Renderer>();
+                if (renderer != null)
+                    renderer.material.color = color;
+            }
         }
 
         // A seesaw plank pivoting at its midpoint between two course steps
         // -- TeeterTotter.cs tilts it at runtime toward whichever end the
         // player is standing closer to.
-        private static void CreateTeeterTotter(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color)
+        // maxTiltDegrees defaults to TeeterTotter's own default (null means
+        // "don't override it") -- callers wanting a gentler seesaw pass a
+        // smaller value explicitly instead of this function assuming one.
+        private static void CreateTeeterTotter(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color, float? maxTiltDegrees = null)
         {
             Vector3 mid = (pointA + pointB) / 2f;
             Vector3 direction = pointB - pointA;
@@ -888,13 +1074,155 @@ namespace Sandbox.EditorTools
             beam.name = "Plank";
             beam.transform.localPosition = Vector3.zero;
             beam.transform.localRotation = Quaternion.identity;
-            beam.transform.localScale = new Vector3(length, 0.3f, 0.5f);
+            // Widened from the original 0.5 -- an easier plank to stay on
+            // while it's actively tilting under you, same reasoning as the
+            // wider connecting rails elsewhere in this pass.
+            beam.transform.localScale = new Vector3(length, 0.3f, 0.8f);
             Renderer renderer = beam.GetComponent<Renderer>();
             if (renderer != null)
                 renderer.material.color = color;
 
             TeeterTotter teeter = pivot.AddComponent<TeeterTotter>();
             SetPrivateField(teeter, "halfLength", length / 2f);
+            if (maxTiltDegrees.HasValue)
+                SetPrivateField(teeter, "maxTiltDegrees", maxTiltDegrees.Value);
+        }
+
+        // A small platform riding back and forth between two course steps
+        // -- an alternate "ride across" option next to a jump gap.
+        // MovingPlatform.cs carries the player by re-parenting them under
+        // this object's root while they're standing on it (see its own
+        // header comment for why that's more robust than manually pushing
+        // them with extra Move() calls).
+        //
+        // The mover/trigger sit on their own unscaled root, with the
+        // visually-scaled cube as a child -- CharacterController explicitly
+        // doesn't support being parented under a non-uniformly-scaled
+        // transform, and this platform's visual (flat and wide) is scaled
+        // non-uniformly, so the rider can't be parented under it directly.
+        private static void CreateMovingPlatform(Transform parent, GameObject cubePrefab, Vector3 pointA, Vector3 pointB, Color color)
+        {
+            GameObject root = new GameObject("MovingPlatform");
+            root.transform.SetParent(parent, false);
+            root.transform.position = pointA;
+
+            GameObject visual = Object.Instantiate(cubePrefab, root.transform);
+            visual.name = "Visual";
+            visual.transform.localPosition = Vector3.zero;
+            visual.transform.localScale = new Vector3(1.6f, 0.4f, 1.6f);
+            Renderer renderer = visual.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+
+            // Straddles the top face (the visual's own top sits at
+            // local-to-root y=0.2, i.e. half its 0.4-scaled height) so a
+            // rider's CharacterController capsule reliably overlaps it
+            // while standing on the surface. Sized in real-world units
+            // directly since root itself carries no scale.
+            BoxCollider riderTrigger = root.AddComponent<BoxCollider>();
+            riderTrigger.isTrigger = true;
+            riderTrigger.size = new Vector3(1.6f, 0.12f, 1.6f);
+            riderTrigger.center = new Vector3(0f, 0.2f, 0f);
+
+            MovingPlatform mover = root.AddComponent<MovingPlatform>();
+            SetPrivateField(mover, "pointA", pointA);
+            SetPrivateField(mover, "pointB", pointB);
+        }
+
+        // A straight vertical ladder bypassing a few climb steps -- an
+        // alternate route alongside the jump-based spiral.
+        // ThirdPersonController.ApplyLadderMovement does the actual
+        // climbing once Ladder.cs tells it the player has stepped in, via
+        // a wide trigger volume surrounding the rail. Originally the
+        // rail's own inherited solid collider was destroyed on the theory
+        // that this needed to be walked straight into rather than bumped
+        // into -- but with no solid collider at all, the player's capsule
+        // could freely clip through the visible wood mesh and stand
+        // embedded inside it. Keeping the rail's own solid collider (the
+        // cube prefab's default, matching the visual mesh's exact bounds)
+        // stops that: the wider trigger still fires climb mode well before
+        // the player reaches the solid mesh, and once climbing, normal
+        // collide-and-slide keeps them flush against its surface --
+        // vertical motion isn't blocked by a vertical wall, so climbing
+        // itself is unaffected.
+        private static void CreateLadder(Transform parent, GameObject cubePrefab, Vector3 bottom, Vector3 top, Color color)
+        {
+            float height = top.y - bottom.y;
+            Vector3 mid = (bottom + top) / 2f;
+
+            GameObject rails = Object.Instantiate(cubePrefab, mid, Quaternion.identity, parent);
+            rails.name = "Ladder";
+            rails.transform.localScale = new Vector3(0.6f, height, 0.15f);
+            Renderer renderer = rails.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+
+            BoxCollider trigger = rails.AddComponent<BoxCollider>();
+            trigger.isTrigger = true;
+            trigger.size = new Vector3(1.5f, 1f, 2f);
+
+            Ladder ladder = rails.AddComponent<Ladder>();
+            SetPrivateField(ladder, "bottomY", bottom.y);
+            SetPrivateField(ladder, "topY", top.y);
+        }
+
+        // Alternating raised battlement blocks around a platform's edge --
+        // the classic castle-parapet silhouette. Spaced in a circle around
+        // center rather than walking an actual square platform's four
+        // edges/corners -- close enough at this scale and block size to
+        // read as crenellations without needing per-side placement logic.
+        private static void CreateCrenellations(Transform parent, GameObject cubePrefab, Vector3 center, float platformHalfSize, Color color, int count)
+        {
+            const float merlonSize = 0.5f;
+            float ringRadius = platformHalfSize - merlonSize * 0.5f;
+
+            for (int i = 0; i < count; i++)
+            {
+                float angle = i * (360f / count) * Mathf.Deg2Rad;
+                Vector3 pos = center + new Vector3(Mathf.Cos(angle) * ringRadius, 0.75f, Mathf.Sin(angle) * ringRadius);
+                GameObject merlon = Object.Instantiate(cubePrefab, pos, Quaternion.identity, parent);
+                merlon.name = "Merlon";
+                merlon.transform.localScale = new Vector3(merlonSize, 0.5f, merlonSize);
+                Renderer renderer = merlon.GetComponent<Renderer>();
+                if (renderer != null)
+                    renderer.material.color = color;
+            }
+        }
+
+        // A round tower capped with its own ring of crenellations -- no
+        // cone roof (this project's shape set has no cone primitive, just
+        // cube/wedge/cylinder/ball), but a battlement-topped cylinder reads
+        // as a castle tower on its own. cylinderPrefab is pre-baked to a
+        // 1x1x1 footprint (see CreateCylinderSource), same as every other
+        // shape prefab, so diameter/height map directly onto localScale.
+        private static void CreateTurret(Transform parent, GameObject cylinderPrefab, GameObject cubePrefab, Vector3 basePosition, float height, float diameter, Color color)
+        {
+            GameObject shaft = Object.Instantiate(cylinderPrefab, basePosition + new Vector3(0f, height / 2f, 0f), Quaternion.identity, parent);
+            shaft.name = "TurretShaft";
+            shaft.transform.localScale = new Vector3(diameter, height, diameter);
+            Renderer renderer = shaft.GetComponent<Renderer>();
+            if (renderer != null)
+                renderer.material.color = color;
+
+            // Swaps the inherited convex MeshCollider (from
+            // CreateCylinderSource -- fine for a small 1x1x1 grid block,
+            // which is all it was ever built for) for a CapsuleCollider.
+            // A tall, heavily-stretched convex mesh collider turned out to
+            // let a CharacterController clip inside it and climb through
+            // the gap; a primitive analytical collider doesn't have that
+            // failure mode. radius/height are 0.5/1 in local (unscaled)
+            // units -- the shaft's baked-in 1x1x1 footprint, same as every
+            // other shape prefab -- so localScale above already applies
+            // the real diameter/height.
+            foreach (Collider staleCollider in shaft.GetComponents<Collider>())
+                Object.DestroyImmediate(staleCollider);
+            CapsuleCollider shaftCollider = shaft.AddComponent<CapsuleCollider>();
+            shaftCollider.direction = 1; // Y-axis
+            shaftCollider.radius = 0.5f;
+            shaftCollider.height = 1f;
+
+            Vector3 topCenter = basePosition + new Vector3(0f, height, 0f);
+            CreateCrenellations(parent, cubePrefab, topCenter, diameter / 2f, color, 8);
         }
 
         // Screen-space timer readout for the obstacle course -- its own
@@ -1367,43 +1695,6 @@ namespace Sandbox.EditorTools
             log.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        // Same "base on a ring, tip at a shared point overhead" convergence
-        // as CreateLeaningLog, but a flat board instead of a round pole, with
-        // its orientation fully controlled (not just FromToRotation's
-        // arbitrary roll) so its width actually runs tangentially around the
-        // ring -- that's what lets neighboring panels overlap into a solid
-        // wall instead of leaving round-pole-shaped gaps between them.
-        // Keeps its default BoxCollider, unlike most decorative props here:
-        // this is a wall, it should actually block the player outside the
-        // doorway gap.
-        private static void CreateTentPanel(Transform parent, Material material, string name, float angleDegrees, float baseRadius, float length, float width, float thickness)
-        {
-            GameObject panel = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            panel.name = name;
-            panel.transform.SetParent(parent, false);
-
-            float rad = angleDegrees * Mathf.Deg2Rad;
-            Vector3 radialDir = new Vector3(Mathf.Cos(rad), 0f, Mathf.Sin(rad));
-            Vector3 tangentDir = new Vector3(-Mathf.Sin(rad), 0f, Mathf.Cos(rad));
-            Vector3 basePoint = radialDir * baseRadius + new Vector3(0f, 0.05f, 0f);
-            Vector3 tipPoint = new Vector3(0f, length * 0.85f, 0f);
-            Vector3 leanDir = (tipPoint - basePoint).normalized;
-
-            panel.transform.localPosition = (basePoint + tipPoint) / 2f;
-            // leanDir lies entirely in the {radialDir, up} plane (basePoint
-            // and tipPoint are both on that plane), so it has zero
-            // component along tangentDir -- the two are already exactly
-            // perpendicular, meaning LookRotation needs no orthogonalizing
-            // adjustment: local Z lands exactly on tangentDir (width axis)
-            // and local Y exactly on leanDir (length axis, the actual lean).
-            panel.transform.localRotation = Quaternion.LookRotation(tangentDir, leanDir);
-            panel.transform.localScale = new Vector3(thickness, Vector3.Distance(basePoint, tipPoint), width);
-
-            Renderer renderer = panel.GetComponent<Renderer>();
-            if (renderer != null)
-                renderer.sharedMaterial = material;
-        }
-
         // Squashed flat rather than stretched -- a bed of embers glowing
         // among the logs, not a flame shape (the particles above handle
         // that). No collider since it's purely visual.
@@ -1510,91 +1801,138 @@ namespace Sandbox.EditorTools
             DynamicGI.UpdateEnvironment();
         }
 
-        // A generic wise-traveler's tent: not tied to any specific real
+        // A generic wise traveler's clearing: not tied to any specific real
         // culture or spiritual tradition, deliberately -- a plain canvas
-        // cone and a robed figure who shares a short, kid-friendly line of
-        // wisdom when you step inside.
-        private static void BuildElderTent(Terrain terrain, Material tentMaterial, Material robeMaterial, Material skinMaterial)
+        // floor mat and a robed figure who shares a short, kid-friendly
+        // line of wisdom when you talk to him. No walls (see the comment
+        // on the floor mat's construction below for why).
+        private static void BuildElderTent(Terrain terrain, Material tentMaterial)
         {
             float baseY = terrain.SampleHeight(new Vector3(ElderTentX, 0f, ElderTentZ));
             GameObject tentRoot = new GameObject("ElderTent");
             tentRoot.transform.position = new Vector3(ElderTentX, baseY, ElderTentZ);
 
-            // Wide flat panels leaning in to a shared apex (like the
-            // campfire's log pile, but boards instead of round poles so
-            // adjacent panels actually overlap into a solid-looking wall
-            // instead of leaving gaps you can see the sky through). Three
-            // consecutive slots are skipped for an actual doorway -- facing
-            // roughly southwest, back toward spawn, so it's the side a
-            // player walking up to the tent sees first.
-            const int panelCount = 18;
+            // No wall panels -- they used to lean inward at a shared apex
+            // for a tepee silhouette, but any leaning (not fully vertical)
+            // collider lets a CharacterController "climb" it just by
+            // holding forward into it: the horizontal push the wall blocks
+            // gets redirected to slide along the wall's own surface, and
+            // that surface has an upward component whenever it isn't
+            // perfectly vertical, same as walking up a ramp. Two rounds of
+            // trying to close that off in ThirdPersonController (gating
+            // jump on surface steepness, then measuring/canceling
+            // unexpected per-frame height gain) didn't fully stop it in
+            // practice, so removing the exploitable geometry entirely was
+            // the actually-reliable fix. The elder now stands in an open
+            // clearing on the same floor mat rather than inside a tent.
             const float baseRadius = 3.4f;
-            const float tentLength = 7f;
-            const float panelWidth = 1.5f;
-            const float panelThickness = 0.18f;
-            for (int i = 0; i < panelCount; i++)
-            {
-                if (i >= 11 && i <= 13)
-                    continue; // doorway
-
-                float angle = i * (360f / panelCount);
-                CreateTentPanel(tentRoot.transform, tentMaterial, $"Panel{i}", angle, baseRadius, tentLength, panelWidth, panelThickness);
-            }
-
-            // Floor mat.
             GameObject floor = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             floor.name = "Floor";
             floor.transform.SetParent(tentRoot.transform, false);
             floor.transform.localPosition = new Vector3(0f, 0.03f, 0f);
             floor.transform.localScale = new Vector3(baseRadius * 1.6f, 0.03f, baseRadius * 1.6f);
+            // No collider -- purely decorative, like CreateFlameBlob. Its
+            // height is fixed relative to a single center-sampled terrain
+            // height, and the surrounding ground isn't perfectly flat (the
+            // clearing sits on a mound), so a real collider here could
+            // float above or clip below the actual walkable ground at the
+            // mat's edges -- the player just walks on the real terrain
+            // underneath instead, which is always correct.
             Object.DestroyImmediate(floor.GetComponent<Collider>());
             Renderer floorRenderer = floor.GetComponent<Renderer>();
             if (floorRenderer != null)
                 floorRenderer.sharedMaterial = tentMaterial;
 
-            CreateElderNpc(tentRoot.transform, robeMaterial, skinMaterial);
+            GameObject elder = CreateElderNpc(tentRoot.transform);
 
-            Text speechText = BuildSpeechUI();
+            BuildSpeechUI(out Text speechText, out Button talkButton, out Text talkButtonLabel);
 
             GameObject triggerGo = new GameObject("ElderTentTrigger");
             triggerGo.transform.SetParent(tentRoot.transform, false);
             triggerGo.transform.localPosition = new Vector3(0f, 1f, 0f);
             ElderTentSpeech speech = triggerGo.AddComponent<ElderTentSpeech>();
             SetPrivateField(speech, "displayText", speechText);
+            SetPrivateField(speech, "talkButton", talkButton);
+            SetPrivateField(speech, "talkButtonLabel", talkButtonLabel);
+            SetPrivateField(speech, "elderVisual", elder != null ? elder.transform : null);
             SetPrivateField(speech, "triggerRadius", baseRadius * 0.9f);
+            UnityEventTools.AddPersistentListener(talkButton.onClick, speech.TriggerSpeech);
         }
 
-        // A simple standing robed figure, reusing the same body-part
-        // primitives as the player avatar (CreateBodyPart/CreateLimb).
-        private static void CreateElderNpc(Transform parent, Material robeMaterial, Material skinMaterial)
+        private const string WizardModelPath = "Assets/Models/Imported/Wizard.fbx";
+
+        // Real rigged/textured CC-Attribution wizard (see
+        // Assets/Models/Imported/README-Wizard.txt), replacing the old
+        // primitive-box standing figure. Kept as a real Humanoid rig (not a
+        // static prop) purely so it can play a live idle animation instead
+        // of standing frozen in its raw T-pose bind pose.
+        private static GameObject CreateElderNpc(Transform parent)
         {
-            GameObject elder = new GameObject("Elder");
-            elder.transform.SetParent(parent, false);
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(WizardModelPath);
+            if (prefab == null)
+            {
+                Debug.LogError($"SceneBootstrapper: missing model at {WizardModelPath}");
+                return null;
+            }
+
+            GameObject elder = Object.Instantiate(prefab, parent);
+            elder.name = "Elder";
+            // Combined mesh bounds (via WizardModelInspector) run from y
+            // -0.04 to +1.95 with the root already essentially at the feet
+            // -- unlike the player avatars this NPC isn't parented under a
+            // CharacterController, so it just sits directly on the tent
+            // floor with no vertical offset needed.
             elder.transform.localPosition = new Vector3(0f, 0f, -0.6f);
+            elder.transform.localRotation = Quaternion.identity;
 
-            CreateBodyPart(elder.transform, "Torso", new Vector3(0f, 0.9f, 0f), new Vector3(0.7f, 1.1f, 0.5f), robeMaterial);
-            CreateBodyPart(elder.transform, "Head", new Vector3(0f, 1.65f, 0f), new Vector3(0.4f, 0.4f, 0.4f), skinMaterial);
-            CreateLimb(elder.transform, "LeftArm", new Vector3(-0.45f, 1.3f, 0f), new Vector3(0.25f, 0.8f, 0.25f), robeMaterial);
-            CreateLimb(elder.transform, "RightArm", new Vector3(0.45f, 1.3f, 0f), new Vector3(0.25f, 0.8f, 0.25f), robeMaterial);
-            CreateLimb(elder.transform, "LeftLeg", new Vector3(-0.2f, 0.4f, 0f), new Vector3(0.3f, 0.8f, 0.3f), robeMaterial);
-            CreateLimb(elder.transform, "RightLeg", new Vector3(0.2f, 0.4f, 0f), new Vector3(0.3f, 0.8f, 0.3f), robeMaterial);
+            foreach (Camera strayCamera in elder.GetComponentsInChildren<Camera>(true))
+                Object.DestroyImmediate(strayCamera.gameObject);
+            foreach (Light strayLight in elder.GetComponentsInChildren<Light>(true))
+                Object.DestroyImmediate(strayLight.gameObject);
 
-            // A simple walking staff propped beside them.
-            GameObject staff = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            staff.name = "Staff";
-            staff.transform.SetParent(elder.transform, false);
-            staff.transform.localPosition = new Vector3(0.55f, 0.9f, 0f);
-            staff.transform.localScale = new Vector3(0.06f, 0.9f, 0.06f);
-            Object.DestroyImmediate(staff.GetComponent<Collider>());
-            Renderer staffRenderer = staff.GetComponent<Renderer>();
-            if (staffRenderer != null)
-                staffRenderer.sharedMaterial = robeMaterial;
+            // All 5 meshes (body/bag/hat/head/staff -- confirmed via
+            // WizardModelInspector) share one palette-style texture already.
+            Material wizardMaterial = CreateMaterial("WizardBody", Color.white);
+            ApplyImportedTexture(wizardMaterial, "Wizard_palette.png", Vector2.one);
+            foreach (SkinnedMeshRenderer renderer in elder.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                renderer.sharedMaterial = wizardMaterial;
+
+            Animator animator = elder.GetComponentInChildren<Animator>();
+            if (animator != null)
+            {
+                animator.runtimeAnimatorController = BuildWizardAnimatorController();
+                animator.applyRootMotion = false;
+            }
+
+            return elder;
         }
 
-        // Bottom-center text readout for ElderTentSpeech -- empty until the
-        // player steps into the tent's trigger. Its own small canvas, no
-        // GraphicRaycaster/EventSystem needed since it's display-only.
-        private static Text BuildSpeechUI()
+        // A minimal Idle-only controller -- this NPC never moves, so unlike
+        // BuildPersonAnimatorController there's no Walk/Run state or
+        // parameters to drive; it just plays PersonAnimated's idle clip
+        // (retargeted via the shared Humanoid rig) forever.
+        private static RuntimeAnimatorController BuildWizardAnimatorController()
+        {
+            const string path = "Assets/Animations/WizardAnimator.controller";
+            Directory.CreateDirectory("Assets/Animations");
+
+            AnimationClip idleClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath).OfType<AnimationClip>().First(c => c.name == "Armature|Standing");
+
+            AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
+            AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
+            AnimatorState idleState = stateMachine.AddState("Idle");
+            idleState.motion = idleClip;
+            stateMachine.defaultState = idleState;
+            return controller;
+        }
+
+        // Bottom-center text readout for ElderTentSpeech's wisdom lines
+        // (empty until triggered) plus the "talk" button beneath it that
+        // actually triggers one -- hidden until the player is in range.
+        // Needs its own GraphicRaycaster (the scene's single shared
+        // EventSystem, from BuildEventSystem, routes clicks to it) since
+        // the button has to be clickable, unlike the display-only text.
+        private static void BuildSpeechUI(out Text speechText, out Button talkButton, out Text talkButtonLabel)
         {
             Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
 
@@ -1604,6 +1942,7 @@ namespace Sandbox.EditorTools
             CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
+            canvasGo.AddComponent<GraphicRaycaster>();
 
             GameObject textGo = new GameObject("SpeechText");
             textGo.transform.SetParent(canvasGo.transform, false);
@@ -1629,7 +1968,44 @@ namespace Sandbox.EditorTools
             outline.effectColor = new Color(0.15f, 0.1f, 0.05f, 0.8f);
             outline.effectDistance = new Vector2(2f, -2f);
 
-            return text;
+            // Sits below the speech text, close to the bottom edge, so it
+            // reads as a prompt rather than competing with the wisdom line
+            // itself when both happen to be visible at once.
+            GameObject buttonGo = new GameObject("TalkButton");
+            buttonGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform buttonRect = buttonGo.AddComponent<RectTransform>();
+            buttonRect.anchorMin = new Vector2(0.5f, 0f);
+            buttonRect.anchorMax = new Vector2(0.5f, 0f);
+            buttonRect.pivot = new Vector2(0.5f, 0f);
+            buttonRect.sizeDelta = new Vector2(260f, 64f);
+            buttonRect.anchoredPosition = new Vector2(0f, 40f);
+
+            Image buttonImage = buttonGo.AddComponent<Image>();
+            buttonImage.color = new Color(0.15f, 0.1f, 0.05f, 0.75f);
+            Button button = buttonGo.AddComponent<Button>();
+            button.targetGraphic = buttonImage;
+
+            GameObject labelGo = new GameObject("Label");
+            labelGo.transform.SetParent(buttonGo.transform, false);
+            RectTransform labelRect = labelGo.AddComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+            Text label = labelGo.AddComponent<Text>();
+            label.font = font;
+            label.fontSize = 28;
+            label.fontStyle = FontStyle.Bold;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.color = Color.white;
+            // Actual text ("Press E to talk" vs "Talk") is set at runtime by
+            // ElderTentSpeech.Awake, once it knows whether this is a touch
+            // session -- MobileControlsVisibility.IsTouchDevice isn't known
+            // yet at edit time.
+
+            speechText = text;
+            talkButton = button;
+            talkButtonLabel = label;
         }
 
         // A simple standing mirror near spawn -- a framed glossy panel on

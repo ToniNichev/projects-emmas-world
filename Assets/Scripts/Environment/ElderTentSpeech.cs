@@ -1,12 +1,14 @@
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 using Sandbox.Player;
+using Sandbox.UI;
 
 namespace Sandbox.Environment
 {
-    // Shows a short, kid-friendly line of "wisdom" on screen when the
-    // player gets close -- a generic wise traveler, not tied to any
-    // specific real culture or spiritual tradition.
+    // Shows a short, kid-friendly line of "wisdom" when the player
+    // deliberately talks to the elder -- a generic wise traveler, not tied
+    // to any specific real culture or spiritual tradition.
     //
     // Plain distance check each frame rather than a trigger-collider
     // callback: OnTriggerEnter only fires on a clean outside-to-inside
@@ -17,11 +19,17 @@ namespace Sandbox.Environment
     public class ElderTentSpeech : MonoBehaviour
     {
         [SerializeField] private Text displayText;
+        [SerializeField] private Button talkButton;
+        [SerializeField] private Text talkButtonLabel;
+        [SerializeField] private Transform elderVisual;
         [SerializeField] private float triggerRadius = 3f;
         [SerializeField] private float appearDuration = 0.6f;
         [SerializeField] private float holdDuration = 3.5f;
         [SerializeField] private float vanishDuration = 1.3f;
         [SerializeField] private float riseDistance = 40f;
+        [SerializeField] private float turnSpeedDegreesPerSecond = 180f;
+        [SerializeField] private float bowDuration = 0.7f;
+        [SerializeField] private float bowAngle = 18f;
 
         private static readonly string[] Lines =
         {
@@ -40,6 +48,8 @@ namespace Sandbox.Environment
         private Vector2 basePosition;
         private bool wasInside;
         private float showStartTime = -1f;
+        private float currentYaw;
+        private float bowStartTime = -1f;
 
         private void Awake()
         {
@@ -52,6 +62,16 @@ namespace Sandbox.Environment
                 basePosition = displayText.rectTransform.anchoredPosition;
                 outline = displayText.GetComponent<Outline>();
             }
+
+            if (talkButton != null)
+            {
+                talkButton.gameObject.SetActive(false);
+                if (talkButtonLabel != null)
+                    talkButtonLabel.text = MobileControlsVisibility.IsTouchDevice ? "Talk" : "Press E to talk";
+            }
+
+            if (elderVisual != null)
+                currentYaw = elderVisual.localEulerAngles.y;
         }
 
         private void Update()
@@ -62,14 +82,76 @@ namespace Sandbox.Environment
             if (player != null)
             {
                 bool isInside = Vector3.Distance(transform.position, player.position) <= triggerRadius;
-                if (isInside && !wasInside)
-                {
-                    displayText.text = Lines[Random.Range(0, Lines.Length)];
-                    showStartTime = Time.time;
-                }
+                if (isInside != wasInside && talkButton != null)
+                    talkButton.gameObject.SetActive(isInside);
+
+                // Keyboard works as a shortcut on desktop; touch players use
+                // the on-screen button instead (wired to TriggerSpeech in
+                // SceneBootstrapper), since there's no key to press.
+                if (isInside && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+                    TriggerSpeech();
+
+                if (isInside)
+                    TurnTowardPlayer();
+
                 wasInside = isInside;
             }
 
+            UpdateSpeechAnimation();
+            ApplyElderRotation();
+        }
+
+        // Turns the elder to keep facing whichever way the player is
+        // standing while they're in range -- makes him read as actually
+        // paying attention to the visitor instead of a static prop that
+        // happens to have floating text appear near it.
+        private void TurnTowardPlayer()
+        {
+            Vector3 toPlayer = player.position - elderVisual.position;
+            toPlayer.y = 0f;
+            if (toPlayer.sqrMagnitude < 0.0001f)
+                return;
+
+            float targetYaw = Quaternion.LookRotation(toPlayer).eulerAngles.y;
+            currentYaw = Mathf.MoveTowardsAngle(currentYaw, targetYaw, turnSpeedDegreesPerSecond * Time.deltaTime);
+        }
+
+        // Wired to the on-screen talk button's onClick, and reachable via
+        // the E key directly above -- one shared entry point so both input
+        // methods produce identical behavior.
+        public void TriggerSpeech()
+        {
+            displayText.text = Lines[Random.Range(0, Lines.Length)];
+            showStartTime = Time.time;
+            bowStartTime = Time.time;
+        }
+
+        // Combines the continuously-updated facing yaw with a brief bow --
+        // a sine arc so the tilt eases in and back out rather than
+        // snapping, timed to roughly coincide with the wisdom line
+        // appearing. ElderTentSpeech owns rotation entirely once triggered;
+        // the Animator (Idle-only, see BuildWizardAnimatorController) never
+        // touches the root transform, so there's nothing to fight over.
+        private void ApplyElderRotation()
+        {
+            if (elderVisual == null)
+                return;
+
+            float bowPitch = 0f;
+            if (bowStartTime >= 0f)
+            {
+                float t = (Time.time - bowStartTime) / bowDuration;
+                if (t >= 1f)
+                    bowStartTime = -1f;
+                else
+                    bowPitch = Mathf.Sin(t * Mathf.PI) * bowAngle;
+            }
+
+            elderVisual.localRotation = Quaternion.Euler(bowPitch, currentYaw, 0f);
+        }
+
+        private void UpdateSpeechAnimation()
+        {
             if (showStartTime < 0f)
                 return;
 
