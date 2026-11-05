@@ -6,6 +6,7 @@ using UnityEngine.InputSystem;
 using Sandbox.Audio;
 using Sandbox.Multiplayer;
 using Sandbox.Save;
+using Sandbox.UI;
 
 namespace Sandbox.Building
 {
@@ -171,6 +172,10 @@ namespace Sandbox.Building
 
         private void OnUndo(InputAction.CallbackContext context)
         {
+            // Typing in chat shouldn't also fire block shortcuts (Backspace
+            // would otherwise undo a block on every typo).
+            if (ChatInputUI.IsTyping)
+                return;
             if (context.performed)
                 PerformUndo();
         }
@@ -195,6 +200,8 @@ namespace Sandbox.Building
 
         private void OnSelectShape(InputAction.CallbackContext context)
         {
+            if (ChatInputUI.IsTyping)
+                return;
             if (!int.TryParse(context.control.name, out int number))
                 return;
 
@@ -209,6 +216,8 @@ namespace Sandbox.Building
 
         private void OnRotate(InputAction.CallbackContext context)
         {
+            if (ChatInputUI.IsTyping)
+                return;
             if (context.performed)
                 PerformRotate();
         }
@@ -234,6 +243,8 @@ namespace Sandbox.Building
 
         private void OnRemove(InputAction.CallbackContext context)
         {
+            if (ChatInputUI.IsTyping)
+                return;
             if (context.performed)
                 PerformRemove();
         }

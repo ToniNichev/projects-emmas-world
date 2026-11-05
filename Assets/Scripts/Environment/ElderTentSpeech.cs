@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
+using Sandbox.Multiplayer;
 using Sandbox.Player;
 using Sandbox.UI;
 
@@ -43,6 +44,11 @@ namespace Sandbox.Environment
             "Listen twice as much as you speak.",
         };
 
+        // Lets a friendly greeting typed in chat trigger the same wisdom as
+        // the explicit E/Talk button -- checked as whole words (see
+        // HandleLocalChatSent) so "history" or "shyness" don't false-match.
+        private static readonly string[] Greetings = { "hi", "hello", "hey", "yo", "howdy" };
+
         private Transform player;
         private Outline outline;
         private Vector2 basePosition;
@@ -74,6 +80,40 @@ namespace Sandbox.Environment
                 currentYaw = elderVisual.localEulerAngles.y;
         }
 
+        private void OnEnable()
+        {
+            MultiplayerManager.LocalChatSent += HandleLocalChatSent;
+        }
+
+        private void OnDisable()
+        {
+            MultiplayerManager.LocalChatSent -= HandleLocalChatSent;
+        }
+
+        // Only reacts while the player is actually standing in range --
+        // typing "hi" to a friend on the other side of the map shouldn't
+        // make the elder shout wisdom from off-screen.
+        private void HandleLocalChatSent(string text)
+        {
+            if (!wasInside)
+                return;
+
+            string[] words = text.ToLowerInvariant().Split(
+                new[] { ' ', '\t', '!', '.', '?', ',' }, System.StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string word in words)
+            {
+                foreach (string greeting in Greetings)
+                {
+                    if (word == greeting)
+                    {
+                        TriggerSpeech();
+                        return;
+                    }
+                }
+            }
+        }
+
         private void Update()
         {
             if (displayText == null)
@@ -88,7 +128,8 @@ namespace Sandbox.Environment
                 // Keyboard works as a shortcut on desktop; touch players use
                 // the on-screen button instead (wired to TriggerSpeech in
                 // SceneBootstrapper), since there's no key to press.
-                if (isInside && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+                if (isInside && !ChatInputUI.IsTyping && Keyboard.current != null
+                    && Keyboard.current.eKey.wasPressedThisFrame)
                     TriggerSpeech();
 
                 if (isInside)

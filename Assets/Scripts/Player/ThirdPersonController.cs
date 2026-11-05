@@ -95,6 +95,28 @@ namespace Sandbox.Player
                 TriggerJump();
         }
 
+        // Lets a UI text field (chat input) take over the keyboard without
+        // WASD also driving the character underneath it -- the on-screen
+        // virtual joystick isn't gated here since a touch player can't drag
+        // it and type at the same time anyway.
+        public void SetInputEnabled(bool inputEnabled)
+        {
+            if (inputEnabled)
+            {
+                moveAction.Enable();
+                sprintAction.Enable();
+                jumpAction.Enable();
+            }
+            else
+            {
+                moveInput = Vector2.zero;
+                sprintHeld = false;
+                moveAction.Disable();
+                sprintAction.Disable();
+                jumpAction.Disable();
+            }
+        }
+
         // Public so the on-screen mobile jump button can call it directly
         // without needing to fake an InputAction.CallbackContext.
         public void TriggerJump()
