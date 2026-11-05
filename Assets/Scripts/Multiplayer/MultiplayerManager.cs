@@ -37,7 +37,7 @@ namespace Sandbox.Multiplayer
         [DllImport("__Internal")] private static extern void EmmasWorld_RegisterListeners();
         [DllImport("__Internal")] private static extern void EmmasWorld_JoinWorld();
         [DllImport("__Internal")] private static extern void EmmasWorld_LeaveWorld();
-        [DllImport("__Internal")] private static extern void EmmasWorld_SendMove(float x, float y, float z, float rotationY);
+        [DllImport("__Internal")] private static extern void EmmasWorld_SendMove(float x, float y, float z, float rotationY, int onBike);
         [DllImport("__Internal")] private static extern void EmmasWorld_SendChat(string text);
 #endif
 
@@ -49,6 +49,7 @@ namespace Sandbox.Multiplayer
         private readonly Dictionary<int, float> remoteTargetRotations = new Dictionary<int, float>();
         private readonly Dictionary<int, GameObject> networkedBlocks = new Dictionary<int, GameObject>();
         private ChatBubble localChatBubble;
+        private Sandbox.Player.BikeRider localBikeRider;
         private float lastChatSentTime = float.NegativeInfinity;
 
         private void Start()
@@ -57,7 +58,10 @@ namespace Sandbox.Multiplayer
             // when there's no live connection, same as the rest of this
             // class treats non-WebGL as "networking is a no-op."
             if (localPlayerTransform != null)
+            {
                 localChatBubble = GetOrAddChatBubble(localPlayerTransform.gameObject);
+                localBikeRider = localPlayerTransform.GetComponent<Sandbox.Player.BikeRider>();
+            }
 
             // Self-attaches rather than requiring a scene-wired reference --
             // this component is procedurally spawned like everything else
@@ -121,7 +125,7 @@ namespace Sandbox.Multiplayer
 
             Vector3 pos = localPlayerTransform.position;
             float rotationY = localPlayerTransform.eulerAngles.y;
-            EmmasWorld_SendMove(pos.x, pos.y, pos.z, rotationY);
+            EmmasWorld_SendMove(pos.x, pos.y, pos.z, rotationY, localBikeRider != null && localBikeRider.IsRiding ? 1 : 0);
 #endif
         }
 
@@ -317,6 +321,23 @@ namespace Sandbox.Multiplayer
 
             remoteTargetPositions[data.user_id] = pos;
             remoteTargetRotations[data.user_id] = data.rotation_y;
+            SetRemoteRiding(avatar, data.on_bike);
+        }
+
+        // Older clients never send on_bike, which reads as false -- they
+        // just show up on foot.
+        private void SetRemoteRiding(GameObject avatar, bool onBike)
+        {
+            if (avatar == null)
+                return;
+            RemoteBikeVisual bikeVisual = avatar.GetComponent<RemoteBikeVisual>();
+            if (bikeVisual == null)
+            {
+                if (!onBike)
+                    return;
+                bikeVisual = avatar.AddComponent<RemoteBikeVisual>();
+            }
+            bikeVisual.SetRiding(onBike, localBikeRider != null ? localBikeRider.BikeTemplate : null);
         }
 
         public void OnSnapshot(string json)
@@ -328,9 +349,10 @@ namespace Sandbox.Multiplayer
             foreach (MoveEvent data in wrapper.items)
             {
                 Vector3 pos = new Vector3(data.x, data.y, data.z);
-                EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
+                GameObject avatar = EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
                 remoteTargetPositions[data.user_id] = pos;
                 remoteTargetRotations[data.user_id] = data.rotation_y;
+                SetRemoteRiding(avatar, data.on_bike);
             }
         }
 
@@ -427,6 +449,7 @@ namespace Sandbox.Multiplayer
         {
             public int user_id;
             public float x, y, z, rotation_y;
+            public bool on_bike;
             public long t;
             public string first_name;
             public string profile_picture;

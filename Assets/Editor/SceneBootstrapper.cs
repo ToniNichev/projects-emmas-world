@@ -173,6 +173,7 @@ namespace Sandbox.EditorTools
             BuildMobileControls(player.GetComponent<ThirdPersonController>(), cameraController, player.GetComponent<BuildPlacer>());
             BuildMirror(player.GetComponent<AvatarCustomization>());
             AddCheckpointsAndStars(terrain);
+            AddBikePark(terrain, player);
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -1468,6 +1469,198 @@ namespace Sandbox.EditorTools
 
             StarCounter counter = canvasGo.AddComponent<StarCounter>();
             SetPrivateField(counter, "label", text);
+        }
+
+        // Adds the bike, bike stand and jump park to the already-saved scene
+        // without regenerating it (see AddCheckpointsAndStarsToExistingScene
+        // for why). Safe to run again: it replaces any earlier copies.
+        [MenuItem("Sandbox/Add Bike Park")]
+        public static void AddBikeParkToExistingScene()
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            GameObject existingPark = GameObject.Find(BikeParkName);
+            if (existingPark != null)
+                Object.DestroyImmediate(existingPark);
+
+            Terrain terrain = Object.FindFirstObjectByType<Terrain>();
+            ThirdPersonController controller = Object.FindFirstObjectByType<ThirdPersonController>();
+            if (terrain == null || controller == null)
+            {
+                Debug.LogError("SceneBootstrapper: scene is missing the terrain or player, can't add the bike park");
+                return;
+            }
+
+            Transform oldBike = controller.transform.Find("Bike");
+            if (oldBike != null)
+                Object.DestroyImmediate(oldBike.gameObject);
+
+            AddBikePark(terrain, controller.gameObject);
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            AssetDatabase.SaveAssets();
+            Debug.Log("SceneBootstrapper: bike park added");
+        }
+
+        private const string BikeParkName = "BikePark";
+
+        // Bike stand just behind spawn, and two jump lanes beside it: a safe
+        // tabletop (kicker, flat top, down ramp) and a gap jump for when
+        // you're braver. Riding direction is -Z, away from spawn.
+        private static void AddBikePark(Terrain terrain, GameObject player)
+        {
+            Material paint = CreateMaterial("BikePaint", new Color(0.1f, 0.7f, 0.8f));
+            Material tire = CreateMaterial("BikeTire", new Color(0.08f, 0.08f, 0.08f));
+            Material metal = CreateMaterial("BikeMetal", new Color(0.8f, 0.8f, 0.82f));
+            Material standPad = CreateMaterial("BikeStandPad", new Color(0.25f, 0.6f, 0.3f));
+
+            // The rider's bike, hidden until they hop on.
+            GameObject bike = BuildBikeVisual(player.transform, paint, tire, metal, out Transform frontWheel, out Transform rearWheel);
+            bike.name = "Bike";
+            bike.transform.localPosition = new Vector3(0f, -1f, 0f);
+            bike.SetActive(false);
+
+            float GroundY(float x, float z) => terrain.transform.position.y + terrain.SampleHeight(new Vector3(x, 0f, z));
+
+            GameObject park = new GameObject(BikeParkName);
+
+            // Stand: a green pad with a parked bike on it, marking where to
+            // hop on. Decoration only, so you can ride right through it.
+            Vector3 standPos = new Vector3(4f, GroundY(4f, -4f), -4f);
+            GameObject stand = new GameObject("BikeStand");
+            stand.transform.SetParent(park.transform, false);
+            stand.transform.position = standPos;
+            GameObject pad = CreateDecorPrimitive(PrimitiveType.Cylinder, stand.transform, standPad);
+            pad.name = "Pad";
+            pad.transform.localPosition = new Vector3(0f, 0.02f, 0f);
+            pad.transform.localScale = new Vector3(3f, 0.02f, 3f);
+            GameObject parked = BuildBikeVisual(stand.transform, paint, tire, metal, out _, out _);
+            parked.name = "ParkedBike";
+            parked.transform.localPosition = Vector3.zero;
+            parked.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // facing the jumps
+
+            // Ramps reuse the game's wedge block (its slope rises toward
+            // local +X), stretched to bike-ramp proportions.
+            GameObject wedge = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabsFolder}/Wedge.prefab");
+            GameObject block = AssetDatabase.LoadAssetAtPath<GameObject>($"{PrefabsFolder}/Block.prefab");
+            Color rampColor = new Color(0.62f, 0.45f, 0.28f);
+            const float laneWidth = 2.4f;
+
+            void Ramp(string rampName, float x, float zStart, float zEnd, float height, bool goingUp)
+            {
+                float length = Mathf.Abs(zEnd - zStart);
+                float zCenter = (zStart + zEnd) / 2f;
+                Vector3 position = new Vector3(x, GroundY(x, zCenter) + height / 2f - 0.02f, zCenter);
+                GameObject ramp = CreateCoursePlatform(park.transform, wedge, position, new Vector3(length, height, laneWidth), rampColor);
+                ramp.name = rampName;
+                // Riding toward -Z: an up-ramp's slope must rise toward -Z.
+                ramp.transform.rotation = Quaternion.Euler(0f, goingUp ? 90f : -90f, 0f);
+            }
+
+            void Table(string tableName, float x, float zStart, float zEnd, float height)
+            {
+                float length = Mathf.Abs(zEnd - zStart);
+                float zCenter = (zStart + zEnd) / 2f;
+                Vector3 position = new Vector3(x, GroundY(x, zCenter) + height / 2f - 0.02f, zCenter);
+                GameObject table = CreateCoursePlatform(park.transform, block, position, new Vector3(laneWidth, height, length), rampColor);
+                table.name = tableName;
+            }
+
+            // Lane 1, tabletop: always lands safely, whatever your speed.
+            Ramp("TabletopKicker", 7f, -8f, -10.5f, 1f, goingUp: true);
+            Table("TabletopTop", 7f, -10.5f, -13.5f, 1f);
+            Ramp("TabletopDown", 7f, -13.5f, -16.5f, 1f, goingUp: false);
+
+            // Lane 2, gap jump: needs some speed to clear the gap.
+            Ramp("GapKicker", 1f, -8f, -10.5f, 1.3f, goingUp: true);
+            Ramp("GapLanding", 1f, -14f, -17.5f, 1.3f, goingUp: false);
+
+            BikeRider rider = player.GetComponent<BikeRider>();
+            if (rider == null)
+                rider = player.AddComponent<BikeRider>();
+            SetPrivateField(rider, "bikeVisual", bike);
+            SetPrivateField(rider, "frontWheel", frontWheel);
+            SetPrivateField(rider, "rearWheel", rearWheel);
+            SetPrivateField(rider, "avatarRoot", player.transform.Find("Avatar"));
+            SetPrivateField(rider, "bikeStand", stand.transform);
+        }
+
+        // A simple BMX-style bike from basic shapes, origin on the ground
+        // between the wheels, facing +Z. No colliders: the player's own
+        // capsule does all the colliding.
+        private static GameObject BuildBikeVisual(Transform parent, Material paint, Material tire, Material metal, out Transform frontWheel, out Transform rearWheel)
+        {
+            GameObject bike = new GameObject("BikeVisual");
+            bike.transform.SetParent(parent, false);
+
+            Vector3 rearAxle = new Vector3(0f, 0.35f, -0.55f);
+            Vector3 frontAxle = new Vector3(0f, 0.35f, 0.6f);
+            Vector3 bottomBracket = new Vector3(0f, 0.38f, 0f);
+            Vector3 seatTop = new Vector3(0f, 0.92f, -0.18f);
+            Vector3 headBottom = new Vector3(0f, 0.85f, 0.48f);
+            Vector3 headTop = new Vector3(0f, 1.02f, 0.45f);
+            Vector3 barCenter = new Vector3(0f, 1.25f, 0.4f);
+            Vector3 side = new Vector3(0.06f, 0f, 0f);
+
+            void Tube(Vector3 from, Vector3 to, float thickness, Material material)
+            {
+                GameObject tube = CreateDecorPrimitive(PrimitiveType.Cube, bike.transform, material);
+                tube.name = "Tube";
+                tube.transform.localPosition = (from + to) / 2f;
+                tube.transform.localRotation = Quaternion.LookRotation(to - from);
+                tube.transform.localScale = new Vector3(thickness, thickness, (to - from).magnitude);
+            }
+
+            Tube(bottomBracket, headBottom, 0.07f, paint);           // down tube
+            Tube(seatTop, headTop, 0.06f, paint);                    // top tube
+            Tube(bottomBracket, seatTop, 0.06f, paint);              // seat tube
+            Tube(headBottom, headTop, 0.07f, paint);                 // head tube
+            Tube(bottomBracket + side, rearAxle + side, 0.04f, paint); // chain stays
+            Tube(bottomBracket - side, rearAxle - side, 0.04f, paint);
+            Tube(seatTop + side, rearAxle + side, 0.035f, paint);    // seat stays
+            Tube(seatTop - side, rearAxle - side, 0.035f, paint);
+            Tube(headBottom + side, frontAxle + side, 0.04f, metal); // fork
+            Tube(headBottom - side, frontAxle - side, 0.04f, metal);
+            Tube(headTop, barCenter, 0.05f, metal);                  // stem
+            Tube(barCenter + new Vector3(-0.33f, 0f, 0f), barCenter + new Vector3(0.33f, 0f, 0f), 0.045f, metal); // handlebar
+
+            GameObject saddle = CreateDecorPrimitive(PrimitiveType.Cube, bike.transform, tire);
+            saddle.name = "Saddle";
+            saddle.transform.localPosition = seatTop + new Vector3(0f, 0.04f, -0.03f);
+            saddle.transform.localScale = new Vector3(0.14f, 0.06f, 0.28f);
+
+            foreach (float x in new[] { -0.17f, 0.17f })
+            {
+                GameObject pedal = CreateDecorPrimitive(PrimitiveType.Cube, bike.transform, tire);
+                pedal.name = "Pedal";
+                pedal.transform.localPosition = new Vector3(x, 0.42f, 0f);
+                pedal.transform.localScale = new Vector3(0.12f, 0.03f, 0.08f);
+            }
+
+            Transform Wheel(string wheelName, Vector3 axle)
+            {
+                // The pivot spins around local X (see BikeRider.LateUpdate).
+                GameObject pivot = new GameObject(wheelName);
+                pivot.transform.SetParent(bike.transform, false);
+                pivot.transform.localPosition = axle;
+
+                GameObject disc = CreateDecorPrimitive(PrimitiveType.Cylinder, pivot.transform, tire);
+                disc.name = "Tire";
+                disc.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                disc.transform.localScale = new Vector3(0.7f, 0.04f, 0.7f);
+
+                // Spokes poke out past the tire's sides so the spin shows.
+                foreach (Vector3 spokeScale in new[] { new Vector3(0.1f, 0.6f, 0.04f), new Vector3(0.1f, 0.04f, 0.6f) })
+                {
+                    GameObject spoke = CreateDecorPrimitive(PrimitiveType.Cube, pivot.transform, metal);
+                    spoke.name = "Spoke";
+                    spoke.transform.localScale = spokeScale;
+                }
+                return pivot.transform;
+            }
+
+            rearWheel = Wheel("RearWheel", rearAxle);
+            frontWheel = Wheel("FrontWheel", frontAxle);
+            return bike;
         }
 
         // A ring of alternating red/white posts with connecting rails around

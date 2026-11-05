@@ -54,10 +54,10 @@ mergeInto(LibraryManager.library, {
     socket.emit('emmasworld:leave');
   },
 
-  EmmasWorld_SendMove: function (x, y, z, rotationY) {
+  EmmasWorld_SendMove: function (x, y, z, rotationY, onBike) {
     var socket = window.__emmasWorldSocket;
     if (!socket) return;
-    socket.emit('emmasworld:move', { x: x, y: y, z: z, rotation_y: rotationY });
+    socket.emit('emmasworld:move', { x: x, y: y, z: z, rotation_y: rotationY, on_bike: onBike === 1 });
   },
 
   // Ephemeral chat -- no REST round trip, no persistence, just a relay like

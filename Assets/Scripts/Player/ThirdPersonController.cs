@@ -56,8 +56,45 @@ namespace Sandbox.Player
         // Only the forward/back axis counts as "moving" -- turning in place
         // (left/right with no forward/back held) shouldn't trigger footsteps
         // or arm/leg swing since the character isn't actually translating.
-        public bool IsMoving => Mathf.Abs(CombinedMoveInput.y) > 0.01f;
+        // Off while riding, so the avatar holds still on the bike instead of
+        // playing its walk cycle (and footsteps stop).
+        public bool IsMoving => !IsRiding && Mathf.Abs(CombinedMoveInput.y) > 0.01f;
         public bool IsSprinting => sprintHeld;
+
+        // ----- Bike (see BikeRider for mounting and visuals) -----
+        // Arcade handling: speed builds up and coasts down instead of
+        // starting/stopping instantly, and riding up a ramp launches you.
+        [Header("Bike")]
+        [SerializeField] private float bikeMaxSpeed = 12f;
+        [SerializeField] private float bikeBoostSpeed = 16f;
+        [SerializeField] private float bikeReverseSpeed = 3f;
+        [SerializeField] private float bikeAcceleration = 9f;
+        [SerializeField] private float bikeBrakeDeceleration = 16f;
+        [SerializeField] private float bikeCoastDeceleration = 3f;
+        [SerializeField] private float bikeTurnSpeed = 140f;
+        [SerializeField] private float bikeJumpHeight = 2f;
+        // How much of the ramp's upward speed carries into the air. Above 1
+        // gives a bit more air than real physics, which feels better.
+        [SerializeField] private float bikeLaunchBoost = 1.35f;
+
+        private float bikeSpeed;
+        private float groundRiseSpeed;
+
+        public bool IsRiding { get; private set; }
+        public float BikeSpeed => bikeSpeed;
+        public float BikeMaxSpeed => bikeMaxSpeed;
+        public float SteerInput => IsRiding ? CombinedMoveInput.x : 0f;
+        public bool IsGrounded => controller.isGrounded;
+        public float VerticalSpeed => verticalVelocity.y;
+
+        public void SetRiding(bool riding)
+        {
+            IsRiding = riding;
+            bikeSpeed = 0f;
+            groundRiseSpeed = 0f;
+            if (riding)
+                currentLadder = null;
+        }
 
         private void Awake()
         {
@@ -174,6 +211,9 @@ namespace Sandbox.Player
         // ladder while walking past isn't disruptive.
         public void EnterLadder(Ladder ladder)
         {
+            // No climbing ladders with a bike.
+            if (IsRiding)
+                return;
             currentLadder = ladder;
             verticalVelocity = Vector3.zero;
         }
@@ -194,6 +234,11 @@ namespace Sandbox.Player
 
             if (currentLadder != null)
                 ApplyLadderMovement();
+            else if (IsRiding)
+            {
+                ApplyGravityAndJump();
+                ApplyBikeMovement();
+            }
             else
             {
                 ApplyGravityAndJump();
@@ -248,6 +293,8 @@ namespace Sandbox.Player
             verticalVelocity = Vector3.zero;
             jumpQueued = false;
             airPeakY = position.y;
+            bikeSpeed = 0f;
+            groundRiseSpeed = 0f;
 
             // CharacterController ignores direct position writes while
             // enabled, so it has to be off for the teleport.
@@ -268,7 +315,8 @@ namespace Sandbox.Player
 
             if (jumpQueued)
             {
-                verticalVelocity.y = Mathf.Sqrt(jumpHeight * -2f * gravity);
+                float height = IsRiding ? bikeJumpHeight : jumpHeight;
+                verticalVelocity.y = Mathf.Sqrt(height * -2f * gravity);
                 jumpQueued = false;
                 soundEffects?.PlayJump();
             }
@@ -310,9 +358,13 @@ namespace Sandbox.Player
             float forwardAmount = Mathf.Clamp(combinedInput.y, -1f, 1f);
             float speed = (sprintHeld ? sprintSpeed : moveSpeed) * Mathf.Abs(forwardAmount);
             Vector3 motion = transform.forward * forwardAmount * speed + verticalVelocity;
+            MoveWithWallClimbGuard(motion);
+        }
 
+        private CollisionFlags MoveWithWallClimbGuard(Vector3 motion)
+        {
             float yBefore = transform.position.y;
-            controller.Move(motion * Time.deltaTime);
+            CollisionFlags flags = controller.Move(motion * Time.deltaTime);
 
             // CharacterController's own collide-and-slide can let simply
             // holding forward into a leaning (not fully vertical) wall
@@ -332,6 +384,65 @@ namespace Sandbox.Player
                 float excessClimb = (transform.position.y - yBefore) - expectedYChange;
                 if (excessClimb > 0f)
                     controller.Move(new Vector3(0f, -excessClimb, 0f));
+            }
+            return flags;
+        }
+
+        private void ApplyBikeMovement()
+        {
+            Vector2 input = CombinedMoveInput;
+            float throttle = Mathf.Clamp(input.y, -1f, 1f);
+            bool grounded = controller.isGrounded;
+
+            float topSpeed = sprintHeld ? bikeBoostSpeed : bikeMaxSpeed;
+            float targetSpeed = throttle >= 0f ? throttle * topSpeed : throttle * bikeReverseSpeed;
+
+            float rate;
+            if (Mathf.Abs(throttle) < 0.01f)
+                rate = bikeCoastDeceleration;
+            else if (Mathf.Sign(targetSpeed) == Mathf.Sign(bikeSpeed) && Mathf.Abs(targetSpeed) > Mathf.Abs(bikeSpeed))
+                rate = bikeAcceleration;
+            else if (Mathf.Abs(bikeSpeed) < 0.05f)
+                rate = bikeAcceleration;
+            else
+                rate = bikeBrakeDeceleration;
+            // Pedaling in the air barely does anything.
+            if (!grounded)
+                rate *= 0.3f;
+            bikeSpeed = Mathf.MoveTowards(bikeSpeed, targetSpeed, rate * Time.deltaTime);
+
+            // Steering is a bit slower when nearly stopped, but still works
+            // so you can line up a jump. Works in the air too (spins!).
+            float steerScale = Mathf.Lerp(0.6f, 1f, Mathf.Abs(bikeSpeed) / bikeMaxSpeed);
+            transform.Rotate(Vector3.up, input.x * bikeTurnSpeed * steerScale * Time.deltaTime);
+
+            Vector3 start = transform.position;
+            Vector3 forward = transform.forward;
+            CollisionFlags flags = MoveWithWallClimbGuard(forward * bikeSpeed + verticalVelocity);
+            Vector3 moved = transform.position - start;
+
+            // Crashing into something kills your speed instead of the bike
+            // grinding against it at full throttle.
+            if ((flags & CollisionFlags.Sides) != 0)
+            {
+                float actualSpeed = Vector3.Dot(new Vector3(moved.x, 0f, moved.z), forward) / Time.deltaTime;
+                if (Mathf.Abs(actualSpeed) < Mathf.Abs(bikeSpeed))
+                    bikeSpeed = actualSpeed;
+            }
+
+            if (controller.isGrounded)
+            {
+                // How fast the ground is lifting the bike (e.g. riding up a
+                // ramp), smoothed so one bumpy frame doesn't count.
+                float rise = Mathf.Max(0f, moved.y / Time.deltaTime);
+                groundRiseSpeed = Mathf.Lerp(groundRiseSpeed, rise, 0.5f);
+            }
+            else if (grounded)
+            {
+                // Just left the ground: carry the ramp's upward speed into
+                // the air. A jump pressed on the lip keeps whichever is bigger.
+                verticalVelocity.y = Mathf.Max(verticalVelocity.y, groundRiseSpeed * bikeLaunchBoost);
+                groundRiseSpeed = 0f;
             }
         }
 
