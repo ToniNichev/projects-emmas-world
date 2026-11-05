@@ -15,11 +15,17 @@ namespace Sandbox.Obstacles
         private float finalTime;
         private bool hasFinished;
 
+        // Let other course systems (checkpoints) react to a run starting or
+        // ending without the timer needing to know about them.
+        public event System.Action RunStarted;
+        public event System.Action RunFinished;
+
         public void StartRun()
         {
             startTime = Time.time;
             running = true;
             hasFinished = false;
+            RunStarted?.Invoke();
         }
 
         public void StopRun()
@@ -30,6 +36,7 @@ namespace Sandbox.Obstacles
             finalTime = Time.time - startTime;
             running = false;
             hasFinished = true;
+            RunFinished?.Invoke();
         }
 
         private void Update()

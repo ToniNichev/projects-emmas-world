@@ -255,7 +255,7 @@ namespace Sandbox.Building
             if (!BuildingAllowed)
                 return;
 
-            if (Physics.Raycast(placementCamera.ScreenPointToRay(GetPointerScreenPosition()), out RaycastHit hit, maxPlaceDistance, placementMask))
+            if (Physics.Raycast(placementCamera.ScreenPointToRay(GetPointerScreenPosition()), out RaycastHit hit, maxPlaceDistance, placementMask, QueryTriggerInteraction.Ignore))
             {
                 PlacedBlock block = hit.collider.GetComponent<PlacedBlock>();
                 if (block == null)
@@ -285,7 +285,7 @@ namespace Sandbox.Building
                 return false;
 
             Ray ray = placementCamera.ScreenPointToRay(GetPointerScreenPosition());
-            if (!Physics.Raycast(ray, out RaycastHit hit, maxPlaceDistance, placementMask))
+            if (!Physics.Raycast(ray, out RaycastHit hit, maxPlaceDistance, placementMask, QueryTriggerInteraction.Ignore))
                 return false;
 
             PlacedBlock hitBlock = hit.collider.GetComponent<PlacedBlock>();

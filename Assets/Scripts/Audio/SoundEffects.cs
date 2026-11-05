@@ -10,6 +10,8 @@ namespace Sandbox.Audio
         private AudioClip removeClip;
         private AudioClip footstepClip;
         private AudioClip jumpClip;
+        private AudioClip checkpointClip;
+        private AudioClip starClip;
 
         private void Awake()
         {
@@ -23,6 +25,8 @@ namespace Sandbox.Audio
             removeClip = ToneGenerator.CreateTone("Remove", 440f, 0.08f, 0.28f);
             footstepClip = ToneGenerator.CreateTone("Footstep", 150f, 0.06f, 0.14f);
             jumpClip = ToneGenerator.CreateTone("Jump", 660f, 0.12f, 0.3f);
+            checkpointClip = ToneGenerator.CreateTone("Checkpoint", 990f, 0.25f, 0.3f);
+            starClip = ToneGenerator.CreateTone("Star", 1320f, 0.15f, 0.3f);
         }
 
         // Small per-play pitch variance so rapid repeats (placing several
@@ -32,6 +36,8 @@ namespace Sandbox.Audio
         public void PlayRemove() => PlayWithVariance(removeClip, 0.05f);
         public void PlayFootstep() => PlayWithVariance(footstepClip, 0.08f);
         public void PlayJump() => source.PlayOneShot(jumpClip);
+        public void PlayCheckpoint() => source.PlayOneShot(checkpointClip);
+        public void PlayStar() => PlayWithVariance(starClip, 0.04f);
 
         private void PlayWithVariance(AudioClip clip, float pitchVariance)
         {

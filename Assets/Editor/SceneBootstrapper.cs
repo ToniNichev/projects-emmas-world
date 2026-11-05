@@ -23,6 +23,7 @@ using Sandbox.CameraControl;
 using Sandbox.Environment;
 using Sandbox.Obstacles;
 using Sandbox.UI;
+using Sandbox.Collectibles;
 
 namespace Sandbox.EditorTools
 {
@@ -54,6 +55,15 @@ namespace Sandbox.EditorTools
         private const float CourseStartX = 25f;
         private const float CourseStartZ = 0f;
         private const float CourseExclusionRadius = 12f; // the spiral tower's footprint is much smaller than the old straight-line course
+        // Spiral climb geometry, shared by BuildObstacleCourse and the
+        // checkpoints/stars added on top of it (see AddCheckpointsAndStars).
+        private const float CourseRadius = 4.2f;
+        private const float CourseAngleStepDegrees = 32f;
+        private const float CourseHeightStep = 1.15f;
+        private const int CourseClimbSteps = 14;
+        private const float CourseRampartRadius = CourseRadius + 3f;
+        private const float CourseZoneRadius = CourseRampartRadius + 3f;
+        private const string StarsFolderName = "Stars";
 
         // Storytale place placement -- a fireside clearing on the opposite
         // side of spawn from the lake and obstacle course, close enough
@@ -162,6 +172,7 @@ namespace Sandbox.EditorTools
             BuildEventSystem();
             BuildMobileControls(player.GetComponent<ThirdPersonController>(), cameraController, player.GetComponent<BuildPlacer>());
             BuildMirror(player.GetComponent<AvatarCustomization>());
+            AddCheckpointsAndStars(terrain);
 
             GameObject lightGo = new GameObject("Directional Light");
             Light light = lightGo.AddComponent<Light>();
@@ -768,13 +779,13 @@ namespace Sandbox.EditorTools
             // (jumpHeight=1.5 in ThirdPersonController); the chord distance
             // between consecutive steps combines with that for a moderate
             // running jump.
-            const float radius = 4.2f;
-            const float angleStepDegrees = 32f;
-            const float heightStep = 1.15f;
+            const float radius = CourseRadius;
+            const float angleStepDegrees = CourseAngleStepDegrees;
+            const float heightStep = CourseHeightStep;
             // Was 12 -- same per-step radius/angle/height (the validated
             // jump math above is untouched), just more of them, for a
             // taller finish without changing how any single jump feels.
-            const int climbSteps = 14;
+            const int climbSteps = CourseClimbSteps;
             // Cube and Cylinder only -- both have a genuinely flat top, so
             // landing on any climb step always gives a straight-up ground
             // normal. Wedge and Ball used to appear here too for variety,
@@ -834,7 +845,7 @@ namespace Sandbox.EditorTools
             // riding the platforms, not an option to skip past them), so it
             // plays completely differently from Path A's jump-and-climb
             // even though both end up at the same place.
-            const float rampartRadius = radius + 3f;
+            const float rampartRadius = CourseRampartRadius;
             const int rampartMergeStep = 9;
             // One waypoint per even step index below the merge point (2,4,6,8) --
             // (rampartMergeStep - 1) / 2 gives 4 here, not rampartMergeStep - 1
@@ -1259,6 +1270,204 @@ namespace Sandbox.EditorTools
             ObstacleCourseTimer timer = canvasGo.AddComponent<ObstacleCourseTimer>();
             SetPrivateField(timer, "displayText", text);
             return timer;
+        }
+
+        // Adds checkpoints and stars to the already-saved scene without
+        // regenerating it -- a full Build() re-scatters every tree and rock
+        // at random. Safe to run again: it replaces any earlier copies.
+        [MenuItem("Sandbox/Add Checkpoints And Stars")]
+        public static void AddCheckpointsAndStarsToExistingScene()
+        {
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            foreach (string existingName in new[] { "CourseCheckpoints", StarsFolderName, "StarCounterUI" })
+            {
+                GameObject existing = GameObject.Find(existingName);
+                if (existing != null)
+                    Object.DestroyImmediate(existing);
+            }
+
+            Terrain terrain = Object.FindFirstObjectByType<Terrain>();
+            if (terrain == null)
+            {
+                Debug.LogError("SceneBootstrapper: no terrain in scene, can't place checkpoints and stars");
+                return;
+            }
+
+            AddCheckpointsAndStars(terrain);
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene);
+            AssetDatabase.SaveAssets();
+            Debug.Log("SceneBootstrapper: checkpoints and stars added");
+        }
+
+        private static void AddCheckpointsAndStars(Terrain terrain)
+        {
+            float courseBaseY = terrain.SampleHeight(new Vector3(CourseStartX, 0f, CourseStartZ));
+            BuildCourseCheckpoints(courseBaseY);
+            BuildStars(terrain, courseBaseY);
+        }
+
+        // Center of spiral step `step` (0 = start platform, CourseClimbSteps
+        // + 1 = finish), at the given radius from the course center.
+        private static Vector3 CourseStepPosition(float baseY, int step, float radius)
+        {
+            float angleRad = step * CourseAngleStepDegrees * Mathf.Deg2Rad;
+            return new Vector3(
+                CourseStartX + radius * Mathf.Cos(angleRad),
+                baseY + 0.5f + step * CourseHeightStep,
+                CourseStartZ + radius * Mathf.Sin(angleRad));
+        }
+
+        private static void BuildCourseCheckpoints(float baseY)
+        {
+            ObstacleCourseTimer timer = Object.FindFirstObjectByType<ObstacleCourseTimer>();
+
+            GameObject root = new GameObject("CourseCheckpoints");
+            CourseCheckpoints manager = root.AddComponent<CourseCheckpoints>();
+            SetPrivateField(manager, "timer", timer);
+            SetPrivateField(manager, "courseCenter", new Vector3(CourseStartX, baseY, CourseStartZ));
+            SetPrivateField(manager, "courseRadius", CourseZoneRadius);
+
+            Material poleMaterial = CreateMaterial("CheckpointPole", new Color(0.35f, 0.25f, 0.15f));
+            Material flagMaterial = CreateMaterial("CheckpointFlag", new Color(0.9f, 0.9f, 0.9f));
+
+            // Step 6 comes right after the first moving platform; step 11 is
+            // past the teeter-totter, after both climbing routes have merged.
+            int[] checkpointSteps = { 6, 11 };
+            for (int i = 0; i < checkpointSteps.Length; i++)
+            {
+                Vector3 step = CourseStepPosition(baseY, checkpointSteps[i], CourseRadius);
+                // Steps are 1-unit blocks centered on `step`; a standing
+                // player's center is 1 unit above the top face.
+                Vector3 standPoint = step + new Vector3(0f, 1.5f, 0f);
+
+                GameObject checkpointGo = new GameObject($"Checkpoint{i + 1}");
+                checkpointGo.transform.SetParent(root.transform, false);
+                checkpointGo.transform.position = standPoint;
+                BoxCollider trigger = checkpointGo.AddComponent<BoxCollider>();
+                trigger.isTrigger = true;
+                trigger.size = new Vector3(1.4f, 2f, 1.4f);
+                CourseCheckpoint checkpoint = checkpointGo.AddComponent<CourseCheckpoint>();
+                SetPrivateField(checkpoint, "order", i);
+
+                // Flag on the step's outer edge, away from the stairs that
+                // arrive along the spiral. Decoration only, no colliders.
+                Vector3 outward = new Vector3(step.x - CourseStartX, 0f, step.z - CourseStartZ).normalized;
+                Vector3 tangent = Vector3.Cross(Vector3.up, outward);
+                Vector3 poleBase = step + outward * 0.42f + Vector3.up * 0.5f;
+
+                GameObject pole = CreateDecorPrimitive(PrimitiveType.Cylinder, checkpointGo.transform, poleMaterial);
+                pole.name = "Pole";
+                pole.transform.position = poleBase + Vector3.up * 0.9f;
+                pole.transform.localScale = new Vector3(0.06f, 0.9f, 0.06f); // Unity's cylinder is 2 units tall
+
+                GameObject flag = CreateDecorPrimitive(PrimitiveType.Cube, checkpointGo.transform, flagMaterial);
+                flag.name = "Flag";
+                flag.transform.position = poleBase + Vector3.up * 1.55f + tangent * 0.3f;
+                flag.transform.rotation = Quaternion.LookRotation(outward);
+                flag.transform.localScale = new Vector3(0.6f, 0.4f, 0.04f);
+                SetPrivateField(checkpoint, "flagRenderer", flag.GetComponent<Renderer>());
+            }
+        }
+
+        private static GameObject CreateDecorPrimitive(PrimitiveType type, Transform parent, Material material)
+        {
+            GameObject go = GameObject.CreatePrimitive(type);
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+            go.transform.SetParent(parent, false);
+            go.GetComponent<Renderer>().sharedMaterial = material;
+            return go;
+        }
+
+        // Twelve stars, one near each landmark plus a few out in the open,
+        // ranging from right next to spawn to the top of the obstacle course.
+        // The ids are saved in each player's progress, so never rename them.
+        private static void BuildStars(Terrain terrain, float courseBaseY)
+        {
+            Material starMaterial = CreateMaterial("StarGold", new Color(1f, 0.82f, 0.2f));
+            starMaterial.EnableKeyword("_EMISSION");
+            starMaterial.SetColor("_EmissionColor", new Color(1f, 0.7f, 0.1f) * 1.2f);
+            starMaterial.SetFloat("_Glossiness", 0.6f);
+            EditorUtility.SetDirty(starMaterial);
+
+            Vector3 OnGround(float x, float z, float lift = 1.3f) =>
+                new Vector3(x, terrain.transform.position.y + terrain.SampleHeight(new Vector3(x, 0f, z)) + lift, z);
+
+            Vector3 finish = CourseStepPosition(courseBaseY, CourseClimbSteps + 1, CourseRadius);
+            var spots = new (string id, Vector3 position)[]
+            {
+                ("spawn", OnGround(5f, 6f)),
+                ("meadow", OnGround(-8f, -9f)),
+                ("lake", OnGround(LakeCenterX, LakeCenterZ)),
+                ("lake-shore", OnGround(LakeCenterX - LakeRadius - 2f, LakeCenterZ + 4f)),
+                ("hill-top", OnGround(HillCenterX, HillCenterZ, 1.5f)),
+                ("hill-slope", OnGround(HillCenterX + 12f, HillCenterZ + 6f)),
+                ("elder-tent", OnGround(ElderTentX - 5f, ElderTentZ - 4f)),
+                ("campfire", OnGround(StoryPlaceX - 5.5f, StoryPlaceZ + 2f)),
+                ("far-corner", OnGround(45f, 45f)),
+                ("west-woods", OnGround(-45f, 30f)),
+                // On a Rampart Walk landing -- only reachable by riding the
+                // moving platforms.
+                ("course-rampart", CourseStepPosition(courseBaseY, 4, CourseRampartRadius) + Vector3.up * 1.6f),
+                // On the gold summit platform, beside the finish button.
+                ("course-summit", finish + new Vector3(1f, 1.7f, 0f)),
+            };
+
+            GameObject starsRoot = new GameObject(StarsFolderName);
+            foreach ((string id, Vector3 position) in spots)
+            {
+                GameObject star = new GameObject($"Star_{id}");
+                star.transform.SetParent(starsRoot.transform, false);
+                star.transform.position = position;
+                star.transform.localScale = Vector3.one * 0.9f;
+                star.AddComponent<MeshFilter>(); // mesh is generated at runtime by StarCollectible
+                MeshRenderer starRenderer = star.AddComponent<MeshRenderer>();
+                starRenderer.sharedMaterial = starMaterial;
+                starRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                SphereCollider pickup = star.AddComponent<SphereCollider>();
+                pickup.isTrigger = true;
+                pickup.radius = 0.7f;
+                StarCollectible collectible = star.AddComponent<StarCollectible>();
+                SetPrivateField(collectible, "starId", id);
+            }
+
+            BuildStarCounterUI();
+        }
+
+        // Top-left, just under the chat bar (ChatInputUI) -- top-center is
+        // the course timer and top-right is the mirror's customization panel.
+        private static void BuildStarCounterUI()
+        {
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+            GameObject canvasGo = new GameObject("StarCounterUI");
+            Canvas canvas = canvasGo.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            CanvasScaler scaler = canvasGo.AddComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920f, 1080f);
+
+            GameObject textGo = new GameObject("StarText");
+            textGo.transform.SetParent(canvasGo.transform, false);
+            RectTransform textRect = textGo.AddComponent<RectTransform>();
+            textRect.anchorMin = new Vector2(0f, 1f);
+            textRect.anchorMax = new Vector2(0f, 1f);
+            textRect.pivot = new Vector2(0f, 1f);
+            textRect.sizeDelta = new Vector2(400f, 44f);
+            textRect.anchoredPosition = new Vector2(24f, -80f);
+
+            Text text = textGo.AddComponent<Text>();
+            text.font = font;
+            text.fontSize = 28;
+            text.alignment = TextAnchor.MiddleLeft;
+            text.color = new Color(1f, 0.85f, 0.3f);
+            text.text = string.Empty;
+            Outline outline = textGo.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.8f);
+            outline.effectDistance = new Vector2(1.5f, -1.5f);
+
+            StarCounter counter = canvasGo.AddComponent<StarCounter>();
+            SetPrivateField(counter, "label", text);
         }
 
         // A ring of alternating red/white posts with connecting rails around

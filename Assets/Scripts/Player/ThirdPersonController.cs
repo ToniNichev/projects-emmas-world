@@ -39,6 +39,12 @@ namespace Sandbox.Player
         private float lastGroundNormalY = 1f;
         private Vector3 spawnPosition;
         private Quaternion spawnRotation;
+        private bool wasGrounded = true;
+        private float airPeakY;
+
+        // Raised when the player touches down after being in the air, with
+        // the height they fell. Used by the obstacle course checkpoints.
+        public event System.Action<float> Landed;
 
         // Combines keyboard/gamepad input with the on-screen movement
         // joystick (when present) so both work simultaneously without one
@@ -59,6 +65,7 @@ namespace Sandbox.Player
             soundEffects = GetComponent<SoundEffects>();
             spawnPosition = transform.position;
             spawnRotation = transform.rotation;
+            airPeakY = spawnPosition.y;
 
             InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
             moveAction = map.FindAction("Move", throwIfNotFound: true);
@@ -193,24 +200,59 @@ namespace Sandbox.Player
                 ApplyMovement();
             }
 
+            TrackLanding();
             UpdateFootsteps();
         }
 
+        // Fires Landed with how far the player dropped, measured from the
+        // highest point since they last stood on something. Walking down
+        // stairs re-grounds every step, so only real falls add up.
+        private void TrackLanding()
+        {
+            float y = transform.position.y;
+
+            if (currentLadder != null)
+            {
+                wasGrounded = true;
+                airPeakY = y;
+                return;
+            }
+
+            bool grounded = controller.isGrounded;
+            if (grounded)
+            {
+                if (!wasGrounded && airPeakY > y)
+                    Landed?.Invoke(airPeakY - y);
+                airPeakY = y;
+            }
+            else
+            {
+                airPeakY = Mathf.Max(airPeakY, y);
+            }
+            wasGrounded = grounded;
+        }
+
         // Puts the player back where they started after falling out of the
-        // world. Public so other systems (e.g. a future "reset" button) can
-        // reuse it.
+        // world.
         public void Respawn()
         {
-            Vector3 delta = spawnPosition - transform.position;
+            TeleportTo(spawnPosition, spawnRotation);
+        }
+
+        // Instantly moves the player (world respawn, course checkpoints).
+        public void TeleportTo(Vector3 position, Quaternion rotation)
+        {
+            Vector3 delta = position - transform.position;
 
             currentLadder = null;
             verticalVelocity = Vector3.zero;
             jumpQueued = false;
+            airPeakY = position.y;
 
             // CharacterController ignores direct position writes while
             // enabled, so it has to be off for the teleport.
             controller.enabled = false;
-            transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+            transform.SetPositionAndRotation(position, rotation);
             controller.enabled = true;
 
             // Tells the follow camera this was a teleport, so it cuts
