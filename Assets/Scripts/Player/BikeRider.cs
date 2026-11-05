@@ -19,12 +19,23 @@ namespace Sandbox.Player
         private const float WheelRadius = 0.35f;
         private const float MaxLeanDegrees = 22f;
         private const float MaxPitchDegrees = 20f;
-        // Riders stand on the pedals, so the avatar sits this much higher.
+        // Riders stand on the pedals, so the avatar sits this much higher
+        // (on a full-size bike; scaled with the bike).
         private const float RiderLift = 0.45f;
+        // The bike is sized to each avatar so the hands reach the grips.
+        private const float MinBikeScale = 0.4f;
+        private const float MaxBikeScale = 1.1f;
+        // Grips sit this far below the shoulders, as a fraction of arm length.
+        private const float GripDropOfArm = 0.4f;
+        // Never ask for more than a slightly bent arm.
+        private const float ComfortableReach = 0.92f;
 
         [SerializeField] private GameObject bikeVisual;
         [SerializeField] private Transform frontWheel;
         [SerializeField] private Transform rearWheel;
+        // Where the hands go (see BikeHandsIK).
+        [SerializeField] private Transform leftGrip;
+        [SerializeField] private Transform rightGrip;
         [SerializeField] private Transform avatarRoot;
         [SerializeField] private Transform bikeStand;
         [SerializeField] private float mountRadius = 3f;
@@ -36,11 +47,16 @@ namespace Sandbox.Player
         private float lean;
         private float pitch;
         private float wheelAngle;
+        private float bikeScale = 1f;
+        private readonly System.Collections.Generic.Dictionary<Animator, float> scaleByBody =
+            new System.Collections.Generic.Dictionary<Animator, float>();
 
         public bool IsRiding => controller != null && controller.IsRiding;
 
         // A copy of the bike for showing on other players (MultiplayerManager).
         public GameObject BikeTemplate => bikeVisual;
+        public Transform LeftGrip => leftGrip;
+        public Transform RightGrip => rightGrip;
 
         private bool NearStand => bikeStand != null
             && Vector3.Distance(transform.position, bikeStand.position) <= mountRadius;
@@ -102,6 +118,8 @@ namespace Sandbox.Player
             if (!IsRiding)
                 return;
 
+            FitBikeToRider();
+
             float speed = controller.BikeSpeed;
             float speedFactor = Mathf.Clamp01(Mathf.Abs(speed) / controller.BikeMaxSpeed);
 
@@ -125,16 +143,92 @@ namespace Sandbox.Player
             }
             if (avatarRoot != null)
             {
-                avatarRoot.localPosition = groundPoint + tilt * new Vector3(0f, 1f + RiderLift, 0f);
+                avatarRoot.localPosition = groundPoint + tilt * new Vector3(0f, 1f + RiderLift * bikeScale, 0f);
                 avatarRoot.localRotation = tilt;
             }
 
-            wheelAngle += speed / WheelRadius * Mathf.Rad2Deg * Time.deltaTime;
+            wheelAngle += speed / (WheelRadius * bikeScale) * Mathf.Rad2Deg * Time.deltaTime;
             Quaternion spin = Quaternion.Euler(wheelAngle, 0f, 0f);
             if (frontWheel != null)
                 frontWheel.localRotation = spin;
             if (rearWheel != null)
                 rearWheel.localRotation = spin;
+        }
+
+        private Animator ActiveBody()
+        {
+            if (avatarRoot == null)
+                return null;
+            foreach (Animator body in avatarRoot.GetComponentsInChildren<Animator>())
+            {
+                if (body.isActiveAndEnabled && body.isHuman)
+                    return body;
+            }
+            return null;
+        }
+
+        // The three avatars are very different sizes (the girls are about
+        // half as tall as the man), so the bike is scaled to whoever rides
+        // it. Measured from the avatar's crouched riding pose, so it waits
+        // for that pose to finish blending in, then remembers the answer
+        // for that avatar. Switching avatars at the mirror while riding
+        // just picks up the other avatar's size.
+        private void FitBikeToRider()
+        {
+            Animator body = ActiveBody();
+            if (body == null)
+                return;
+
+            if (!scaleByBody.TryGetValue(body, out float scale))
+            {
+                bool crouched = body.GetCurrentAnimatorStateInfo(0).IsName("Riding") && !body.IsInTransition(0);
+                if (!crouched)
+                    return;
+                scale = MeasureBikeScale(body);
+                scaleByBody[body] = scale;
+            }
+
+            if (!Mathf.Approximately(scale, bikeScale))
+            {
+                bikeScale = scale;
+                if (bikeVisual != null)
+                    bikeVisual.transform.localScale = Vector3.one * bikeScale;
+            }
+        }
+
+        private float MeasureBikeScale(Animator body)
+        {
+            Transform upperArm = body.GetBoneTransform(HumanBodyBones.LeftUpperArm);
+            Transform lowerArm = body.GetBoneTransform(HumanBodyBones.LeftLowerArm);
+            Transform hand = body.GetBoneTransform(HumanBodyBones.LeftHand);
+            if (upperArm == null || lowerArm == null || hand == null || leftGrip == null || avatarRoot == null)
+                return 1f;
+
+            float armLength = Vector3.Distance(upperArm.position, lowerArm.position)
+                + Vector3.Distance(lowerArm.position, hand.position);
+            // In the avatar's own space (feet at y = -1), so it doesn't
+            // matter where the avatar is right now or how it's leaning.
+            Vector3 shoulder = avatarRoot.InverseTransformPoint(upperArm.position);
+            Vector3 gripOnFullBike = leftGrip.localPosition;
+
+            // On a bike of size s the shoulder rises by the pedal height
+            // (RiderLift * s) and the grip sits at gripOnFullBike * s above
+            // the ground. Solve for the size that puts the grip the wanted
+            // distance below the shoulder...
+            float shoulderHeight = shoulder.y + 1f;
+            float scale = (shoulderHeight - GripDropOfArm * armLength) / (gripOnFullBike.y - RiderLift);
+            scale = Mathf.Clamp(scale, MinBikeScale, MaxBikeScale);
+
+            // ...then make sure the hand can actually get there.
+            while (scale > MinBikeScale)
+            {
+                Vector3 shoulderOnBike = shoulder + new Vector3(0f, RiderLift * scale, 0f);
+                Vector3 grip = new Vector3(0f, -1f, 0f) + gripOnFullBike * scale;
+                if (Vector3.Distance(shoulderOnBike, grip) <= armLength * ComfortableReach)
+                    break;
+                scale -= 0.02f;
+            }
+            return scale;
         }
 
         // Built here at runtime, like the chat bar (see ChatInputUI). Bottom

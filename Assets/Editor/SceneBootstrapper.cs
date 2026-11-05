@@ -1582,6 +1582,25 @@ namespace Sandbox.EditorTools
             SetPrivateField(rider, "rearWheel", rearWheel);
             SetPrivateField(rider, "avatarRoot", player.transform.Find("Avatar"));
             SetPrivateField(rider, "bikeStand", stand.transform);
+            SetPrivateField(rider, "leftGrip", bike.transform.Find("LeftGrip"));
+            SetPrivateField(rider, "rightGrip", bike.transform.Find("RightGrip"));
+
+            // Hands on the handlebars: IK on every avatar body, which needs
+            // the shared animator controller's IK pass switched on.
+            Transform avatarRoot = player.transform.Find("Avatar");
+            if (avatarRoot != null)
+            {
+                foreach (Animator bodyAnimator in avatarRoot.GetComponentsInChildren<Animator>(true))
+                {
+                    if (bodyAnimator.GetComponent<BikeHandsIK>() == null)
+                        bodyAnimator.gameObject.AddComponent<BikeHandsIK>();
+                    if (bodyAnimator.runtimeAnimatorController is AnimatorController bodyController)
+                    {
+                        EnableIKPass(bodyController);
+                        AddRidingState(bodyController);
+                    }
+                }
+            }
         }
 
         // A simple BMX-style bike from basic shapes, origin on the ground
@@ -1598,7 +1617,9 @@ namespace Sandbox.EditorTools
             Vector3 seatTop = new Vector3(0f, 0.92f, -0.18f);
             Vector3 headBottom = new Vector3(0f, 0.85f, 0.48f);
             Vector3 headTop = new Vector3(0f, 1.02f, 0.45f);
-            Vector3 barCenter = new Vector3(0f, 1.25f, 0.4f);
+            // Swept back toward the rider (BMX-style) so short avatar arms
+            // reach the grips while crouched.
+            Vector3 barCenter = new Vector3(0f, 1.3f, 0.28f);
             Vector3 side = new Vector3(0.06f, 0f, 0f);
 
             void Tube(Vector3 from, Vector3 to, float thickness, Material material)
@@ -1622,6 +1643,14 @@ namespace Sandbox.EditorTools
             Tube(headBottom - side, frontAxle - side, 0.04f, metal);
             Tube(headTop, barCenter, 0.05f, metal);                  // stem
             Tube(barCenter + new Vector3(-0.33f, 0f, 0f), barCenter + new Vector3(0.33f, 0f, 0f), 0.045f, metal); // handlebar
+
+            // Hand targets near the bar ends (see BikeHandsIK).
+            foreach ((string gripName, float x) in new[] { ("LeftGrip", -0.27f), ("RightGrip", 0.27f) })
+            {
+                GameObject grip = new GameObject(gripName);
+                grip.transform.SetParent(bike.transform, false);
+                grip.transform.localPosition = barCenter + new Vector3(x, 0f, 0f);
+            }
 
             GameObject saddle = CreateDecorPrimitive(PrimitiveType.Cube, bike.transform, tire);
             saddle.name = "Saddle";
@@ -3339,6 +3368,18 @@ namespace Sandbox.EditorTools
             return anchor.transform;
         }
 
+        // Needed for OnAnimatorIK (bike hands). Layers are copies, so the
+        // array has to be written back.
+        private static void EnableIKPass(AnimatorController controller)
+        {
+            AnimatorControllerLayer[] layers = controller.layers;
+            if (layers.Length == 0 || layers[0].iKPass)
+                return;
+            layers[0].iKPass = true;
+            controller.layers = layers;
+            EditorUtility.SetDirty(controller);
+        }
+
         private static RuntimeAnimatorController BuildPersonAnimatorController()
         {
             const string path = "Assets/Animations/PersonAnimator.controller";
@@ -3352,6 +3393,7 @@ namespace Sandbox.EditorTools
             AnimatorController controller = AnimatorController.CreateAnimatorControllerAtPath(path);
             controller.AddParameter("IsMoving", AnimatorControllerParameterType.Bool);
             controller.AddParameter("IsSprinting", AnimatorControllerParameterType.Bool);
+            EnableIKPass(controller);
 
             AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
             AnimatorState idleState = stateMachine.AddState("Idle");
@@ -3370,8 +3412,30 @@ namespace Sandbox.EditorTools
             AddTransition(walkState, runState, AnimatorConditionMode.If, "IsSprinting");
             AddTransition(runState, walkState, AnimatorConditionMode.IfNot, "IsSprinting");
             AddTransition(runState, idleState, AnimatorConditionMode.IfNot, "IsMoving");
+            AddRidingState(controller);
 
             return controller;
+        }
+
+        // Crouched "attack position" while on the bike: knees bent and
+        // shoulders low enough for the hands to reach the handlebars.
+        // Riding forces IsMoving off, so it's always entered from Idle.
+        private static void AddRidingState(AnimatorController controller)
+        {
+            if (controller.parameters.Any(p => p.name == "IsRiding"))
+                return;
+
+            AnimationClip crouchClip = AssetDatabase.LoadAllAssetsAtPath(PersonModelPath)
+                .OfType<AnimationClip>().First(c => c.name == "Armature|CrouchIdle");
+            controller.AddParameter("IsRiding", AnimatorControllerParameterType.Bool);
+
+            AnimatorStateMachine stateMachine = controller.layers[0].stateMachine;
+            AnimatorState idleState = stateMachine.states.First(s => s.state.name == "Idle").state;
+            AnimatorState ridingState = stateMachine.AddState("Riding");
+            ridingState.motion = crouchClip;
+            AddTransition(idleState, ridingState, AnimatorConditionMode.If, "IsRiding");
+            AddTransition(ridingState, idleState, AnimatorConditionMode.IfNot, "IsRiding");
+            EditorUtility.SetDirty(controller);
         }
 
         private static void AddTransition(AnimatorState from, AnimatorState to, AnimatorConditionMode mode, string parameter)

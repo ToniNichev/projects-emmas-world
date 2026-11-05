@@ -31,6 +31,10 @@ namespace Sandbox.Multiplayer
                     bike.name = "Bike";
                     bike.transform.localPosition = new Vector3(0f, -1f, 0f);
                     bike.transform.localRotation = Quaternion.identity;
+                    // Other players use the old full-size avatar, so a
+                    // full-size bike (the local copy may be shrunk to fit
+                    // a smaller avatar).
+                    bike.transform.localScale = Vector3.one;
                 }
                 bike.SetActive(true);
 

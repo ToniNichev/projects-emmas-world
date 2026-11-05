@@ -27,6 +27,7 @@ namespace Sandbox.Player
 
             animator.SetBool("IsMoving", controller.IsMoving);
             animator.SetBool("IsSprinting", controller.IsSprinting);
+            animator.SetBool("IsRiding", controller.IsRiding);
         }
 
         // Called by AvatarCustomization when the player switches bodies --
