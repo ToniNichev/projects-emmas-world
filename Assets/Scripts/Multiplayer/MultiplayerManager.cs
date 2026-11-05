@@ -21,6 +21,9 @@ namespace Sandbox.Multiplayer
     // needs the JS bridge.
     public class MultiplayerManager : MonoBehaviour
     {
+        public const int MaxChatLength = 120;
+        private const float ChatCooldownSeconds = 1.5f;
+
         [SerializeField] private GameObject[] blockPrefabs;
         [SerializeField] private Transform blockParent;
         [SerializeField] private GameObject remoteAvatarPrefab;
@@ -34,6 +37,7 @@ namespace Sandbox.Multiplayer
         [DllImport("__Internal")] private static extern void EmmasWorld_JoinWorld();
         [DllImport("__Internal")] private static extern void EmmasWorld_LeaveWorld();
         [DllImport("__Internal")] private static extern void EmmasWorld_SendMove(float x, float y, float z, float rotationY);
+        [DllImport("__Internal")] private static extern void EmmasWorld_SendChat(string text);
 #endif
 
         public bool IsConnected { get; private set; }
@@ -43,9 +47,24 @@ namespace Sandbox.Multiplayer
         private readonly Dictionary<int, Vector3> remoteTargetPositions = new Dictionary<int, Vector3>();
         private readonly Dictionary<int, float> remoteTargetRotations = new Dictionary<int, float>();
         private readonly Dictionary<int, GameObject> networkedBlocks = new Dictionary<int, GameObject>();
+        private ChatBubble localChatBubble;
+        private float lastChatSentTime = float.NegativeInfinity;
 
         private void Start()
         {
+            // Chat bubbles work locally (Editor/standalone included) even
+            // when there's no live connection, same as the rest of this
+            // class treats non-WebGL as "networking is a no-op."
+            if (localPlayerTransform != null)
+                localChatBubble = GetOrAddChatBubble(localPlayerTransform.gameObject);
+
+            // Self-attaches rather than requiring a scene-wired reference --
+            // this component is procedurally spawned like everything else
+            // MultiplayerManager touches, so there's no Inspector slot for a
+            // designer to have already hooked a chat UI into.
+            if (GetComponent<Sandbox.UI.ChatInputUI>() == null)
+                gameObject.AddComponent<Sandbox.UI.ChatInputUI>();
+
 #if UNITY_WEBGL && !UNITY_EDITOR
             InvokeRepeating(nameof(TryConnect), 0.5f, 0.5f);
 #endif
@@ -215,6 +234,69 @@ namespace Sandbox.Multiplayer
                 SpawnNetworkedBlock(block);
         }
 
+        // ----- Chat (ephemeral -- never persisted, no history to replay) -----
+
+        // Lets other local systems (e.g. ElderTentSpeech reacting to a
+        // typed "hi") observe what the player just said, independent of
+        // whether it actually made it onto the network -- fires even
+        // outside a WebGL build, same as the local chat bubble does.
+        public static event Action<string> LocalChatSent;
+
+        // Shows the bubble locally immediately regardless of connection
+        // state, then relays it over the network only when actually
+        // connected -- mirrors how the rest of this class degrades to
+        // local-only behavior outside of a WebGL build.
+        //
+        // Returns false when the message was rejected (empty, or sent within
+        // the cooldown). The server silently drops chat sent less than 1.5s
+        // apart (see emmasworld:chat in web-apps-emma-tony/server.js), so the
+        // same limit is enforced here -- otherwise the sender would see their
+        // own bubble while nobody else ever received it.
+        public bool RequestSendChat(string text)
+        {
+            string trimmed = (text ?? string.Empty).Trim();
+            if (trimmed.Length == 0)
+                return false;
+            if (Time.unscaledTime - lastChatSentTime < ChatCooldownSeconds)
+                return false;
+            if (trimmed.Length > MaxChatLength)
+                trimmed = trimmed.Substring(0, MaxChatLength);
+
+            lastChatSentTime = Time.unscaledTime;
+            localChatBubble?.Show(trimmed);
+            LocalChatSent?.Invoke(trimmed);
+
+#if UNITY_WEBGL && !UNITY_EDITOR
+            if (IsConnected)
+                EmmasWorld_SendChat(trimmed);
+#endif
+            return true;
+        }
+
+        public void OnRemoteChat(string json)
+        {
+            ChatEvent data = JsonUtility.FromJson<ChatEvent>(json);
+            if (data == null || string.IsNullOrEmpty(data.text))
+                return;
+
+            // No avatar yet (chat arrived before any move event) means no
+            // position to anchor a bubble to -- rare enough in practice
+            // (the join snapshot/first move fires almost immediately) to
+            // just drop it rather than spawning one at the origin.
+            if (!remoteAvatars.TryGetValue(data.user_id, out GameObject avatar) || avatar == null)
+                return;
+
+            GetOrAddChatBubble(avatar).Show(data.text);
+        }
+
+        private static ChatBubble GetOrAddChatBubble(GameObject target)
+        {
+            ChatBubble bubble = target.GetComponent<ChatBubble>();
+            if (bubble == null)
+                bubble = target.AddComponent<ChatBubble>();
+            return bubble;
+        }
+
         // ----- Incoming events (called from JS via SendMessage) -----
 
         public void OnRemoteMove(string json)
@@ -359,5 +441,6 @@ namespace Sandbox.Multiplayer
         [Serializable] private class BlockRemovedEvent { public int id; }
         [Serializable] private class BlockListWrapper { public BlockEvent[] items; }
         [Serializable] private class PlaceResponse { public int id; }
+        [Serializable] private class ChatEvent { public int user_id; public string text; }
     }
 }

@@ -15,6 +15,15 @@ namespace Sandbox.EditorTools
             var importer = (ModelImporter)assetImporter;
             importer.animationType = ModelImporterAnimationType.Human;
             importer.importAnimation = true;
+
+            // The FBX's baked-in normals are flat/per-face (this is a very
+            // low-poly mesh, under 1000 tris), which reads as a faceted,
+            // cut-gemstone look on what's supposed to be a smooth body.
+            // Recalculating with a wide smoothing angle rounds it out.
+            importer.importNormals = ModelImporterNormals.Calculate;
+            importer.normalCalculationMode = ModelImporterNormalCalculationMode.AngleWeighted;
+            importer.normalSmoothingSource = ModelImporterNormalSmoothingSource.PreferSmoothingGroups;
+            importer.normalSmoothingAngle = 120f;
         }
 
         // Every clip in this pack imports with Loop Time off by default, so

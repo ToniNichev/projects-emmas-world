@@ -101,7 +101,7 @@ namespace Sandbox.CameraControl
             if (Mouse.current != null)
                 zoomDelta -= Mouse.current.scroll.ReadValue().y * scrollZoomSpeed * 0.03f;
 
-            if (Keyboard.current != null)
+            if (Keyboard.current != null && !ChatInputUI.IsTyping)
             {
                 if (Keyboard.current.equalsKey.isPressed || Keyboard.current.numpadPlusKey.isPressed)
                     zoomDelta -= keyZoomSpeed * Time.deltaTime;

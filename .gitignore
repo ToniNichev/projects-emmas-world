@@ -60,3 +60,6 @@ Thumbs.db
 
 # Scratch logs from setup
 *.log
+
+# Local WebGL test builds
+/WebGLBuild/

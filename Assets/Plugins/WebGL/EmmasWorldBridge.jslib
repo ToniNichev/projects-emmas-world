@@ -37,6 +37,9 @@ mergeInto(LibraryManager.library, {
     socket.on('emmasworld:world_reset', function () {
       SendMessage('MultiplayerManager', 'OnWorldReset', '{}');
     });
+    socket.on('emmasworld:chat', function (data) {
+      SendMessage('MultiplayerManager', 'OnRemoteChat', JSON.stringify(data));
+    });
   },
 
   EmmasWorld_JoinWorld: function () {
@@ -55,6 +58,14 @@ mergeInto(LibraryManager.library, {
     var socket = window.__emmasWorldSocket;
     if (!socket) return;
     socket.emit('emmasworld:move', { x: x, y: y, z: z, rotation_y: rotationY });
+  },
+
+  // Ephemeral chat -- no REST round trip, no persistence, just a relay like
+  // move/block events are. text arrives as a UTF8 pointer from C#.
+  EmmasWorld_SendChat: function (text) {
+    var socket = window.__emmasWorldSocket;
+    if (!socket) return;
+    socket.emit('emmasworld:chat', { text: UTF8ToString(text) });
   },
 
 });
