@@ -84,6 +84,7 @@ namespace Sandbox.Player
         public float BikeSpeed => bikeSpeed;
         public float BikeMaxSpeed => bikeMaxSpeed;
         public float SteerInput => IsRiding ? CombinedMoveInput.x : 0f;
+        public float ThrottleInput => IsRiding ? CombinedMoveInput.y : 0f;
         public bool IsGrounded => controller.isGrounded;
         public float VerticalSpeed => verticalVelocity.y;
 

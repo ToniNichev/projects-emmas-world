@@ -1584,6 +1584,9 @@ namespace Sandbox.EditorTools
             SetPrivateField(rider, "bikeStand", stand.transform);
             SetPrivateField(rider, "leftGrip", bike.transform.Find("LeftGrip"));
             SetPrivateField(rider, "rightGrip", bike.transform.Find("RightGrip"));
+            SetPrivateField(rider, "crank", bike.transform.Find("Crank"));
+            SetPrivateField(rider, "leftPedal", bike.transform.Find("Crank/LeftPedal"));
+            SetPrivateField(rider, "rightPedal", bike.transform.Find("Crank/RightPedal"));
 
             // Hands on the handlebars: IK on every avatar body, which needs
             // the shared animator controller's IK pass switched on.
@@ -1657,11 +1660,27 @@ namespace Sandbox.EditorTools
             saddle.transform.localPosition = seatTop + new Vector3(0f, 0.04f, -0.03f);
             saddle.transform.localScale = new Vector3(0.14f, 0.06f, 0.28f);
 
-            foreach (float x in new[] { -0.17f, 0.17f })
+            // Cranks: a pivot at the bottom bracket that spins around local
+            // X, with an arm and a pedal on each side, opposite each other.
+            // The pedals themselves are kept level while the crank turns
+            // (see BikeRider), and the rider's feet follow them (BikeHandsIK).
+            const float crankLength = 0.17f;
+            GameObject crank = new GameObject("Crank");
+            crank.transform.SetParent(bike.transform, false);
+            crank.transform.localPosition = bottomBracket;
+            foreach ((string pedalName, float x, float z) in new[] { ("LeftPedal", -0.17f, -crankLength), ("RightPedal", 0.17f, crankLength) })
             {
-                GameObject pedal = CreateDecorPrimitive(PrimitiveType.Cube, bike.transform, tire);
+                Vector3 pedalPos = new Vector3(x, 0f, z);
+                GameObject arm = CreateDecorPrimitive(PrimitiveType.Cube, crank.transform, metal);
+                arm.name = "CrankArm";
+                arm.transform.localPosition = new Vector3(x * 0.75f, 0f, z / 2f);
+                arm.transform.localScale = new Vector3(0.025f, 0.03f, crankLength + 0.03f);
+
+                GameObject pedalPivot = new GameObject(pedalName);
+                pedalPivot.transform.SetParent(crank.transform, false);
+                pedalPivot.transform.localPosition = pedalPos;
+                GameObject pedal = CreateDecorPrimitive(PrimitiveType.Cube, pedalPivot.transform, tire);
                 pedal.name = "Pedal";
-                pedal.transform.localPosition = new Vector3(x, 0.42f, 0f);
                 pedal.transform.localScale = new Vector3(0.12f, 0.03f, 0.08f);
             }
 

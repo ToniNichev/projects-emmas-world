@@ -20,8 +20,13 @@ namespace Sandbox.Player
         private const float MaxLeanDegrees = 22f;
         private const float MaxPitchDegrees = 20f;
         // Riders stand on the pedals, so the avatar sits this much higher
-        // (on a full-size bike; scaled with the bike).
-        private const float RiderLift = 0.45f;
+        // (on a full-size bike; scaled with the bike). Matches the crank
+        // height, so the feet reach the pedals all the way round.
+        private const float RiderLift = 0.4f;
+        // Pedals turn this many times slower than the wheels (gearing).
+        private const float GearRatio = 2.2f;
+        // While pedaling slowly, the cranks still turn at least this fast.
+        private const float MinPedalDegreesPerSecond = 120f;
         // The bike is sized to each avatar so the hands reach the grips.
         private const float MinBikeScale = 0.4f;
         private const float MaxBikeScale = 1.1f;
@@ -36,6 +41,10 @@ namespace Sandbox.Player
         // Where the hands go (see BikeHandsIK).
         [SerializeField] private Transform leftGrip;
         [SerializeField] private Transform rightGrip;
+        // The crank spins around its local X; the feet follow the pedals.
+        [SerializeField] private Transform crank;
+        [SerializeField] private Transform leftPedal;
+        [SerializeField] private Transform rightPedal;
         [SerializeField] private Transform avatarRoot;
         [SerializeField] private Transform bikeStand;
         [SerializeField] private float mountRadius = 3f;
@@ -47,6 +56,7 @@ namespace Sandbox.Player
         private float lean;
         private float pitch;
         private float wheelAngle;
+        private float crankAngle;
         private float bikeScale = 1f;
         private readonly System.Collections.Generic.Dictionary<Animator, float> scaleByBody =
             new System.Collections.Generic.Dictionary<Animator, float>();
@@ -57,6 +67,8 @@ namespace Sandbox.Player
         public GameObject BikeTemplate => bikeVisual;
         public Transform LeftGrip => leftGrip;
         public Transform RightGrip => rightGrip;
+        public Transform LeftPedal => leftPedal;
+        public Transform RightPedal => rightPedal;
 
         private bool NearStand => bikeStand != null
             && Vector3.Distance(transform.position, bikeStand.position) <= mountRadius;
@@ -153,6 +165,39 @@ namespace Sandbox.Player
                 frontWheel.localRotation = spin;
             if (rearWheel != null)
                 rearWheel.localRotation = spin;
+
+            UpdateCranks(speed);
+        }
+
+        // Pedaling (holding forward on the ground) turns the cranks in step
+        // with the wheels. Coasting or in the air, riders stop pedaling and
+        // hold the pedals level, so the cranks settle to horizontal.
+        private void UpdateCranks(float speed)
+        {
+            if (crank == null)
+                return;
+
+            bool pedaling = controller.ThrottleInput > 0.1f && controller.IsGrounded;
+            if (pedaling)
+            {
+                float wheelDegreesPerSecond = speed / (WheelRadius * bikeScale) * Mathf.Rad2Deg;
+                float pedalSpeed = Mathf.Max(wheelDegreesPerSecond / GearRatio, MinPedalDegreesPerSecond);
+                crankAngle = Mathf.Repeat(crankAngle + pedalSpeed * Time.deltaTime, 360f);
+            }
+            else
+            {
+                // Nearest level position: 0 or 180 degrees.
+                float level = Mathf.Round(crankAngle / 180f) * 180f;
+                crankAngle = Mathf.Repeat(Mathf.MoveTowardsAngle(crankAngle, level, 240f * Time.deltaTime), 360f);
+            }
+
+            crank.localRotation = Quaternion.Euler(crankAngle, 0f, 0f);
+            // Pedals stay flat as they go round.
+            Quaternion level0 = Quaternion.Inverse(crank.localRotation);
+            if (leftPedal != null)
+                leftPedal.localRotation = level0;
+            if (rightPedal != null)
+                rightPedal.localRotation = level0;
         }
 
         private Animator ActiveBody()
