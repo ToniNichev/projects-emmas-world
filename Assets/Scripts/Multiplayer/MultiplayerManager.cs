@@ -23,6 +23,7 @@ namespace Sandbox.Multiplayer
     {
         public const int MaxChatLength = 120;
         private const float ChatCooldownSeconds = 1.5f;
+        private const float RemoteSnapDistance = 15f;
 
         [SerializeField] private GameObject[] blockPrefabs;
         [SerializeField] private Transform blockParent;
@@ -306,7 +307,14 @@ namespace Sandbox.Multiplayer
                 return;
 
             Vector3 pos = new Vector3(data.x, data.y, data.z);
-            EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
+            GameObject avatar = EnsureRemoteAvatar(data.user_id, pos, data.rotation_y);
+
+            // A big jump means a teleport (e.g. respawning after falling
+            // out of the world) -- snap there instead of visibly gliding
+            // up from below the map.
+            if (avatar != null && Vector3.Distance(avatar.transform.position, pos) > RemoteSnapDistance)
+                avatar.transform.position = pos;
+
             remoteTargetPositions[data.user_id] = pos;
             remoteTargetRotations[data.user_id] = data.rotation_y;
         }

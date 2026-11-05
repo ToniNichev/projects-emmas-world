@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using Unity.Cinemachine;
 using Sandbox.Audio;
 using Sandbox.Obstacles;
 using Sandbox.UI;
@@ -20,6 +21,9 @@ namespace Sandbox.Player
         [SerializeField] private VirtualJoystick moveJoystick;
         [SerializeField] private float climbSpeed = 3f;
         [SerializeField] private float ladderRailSnapSpeed = 8f;
+        // The lowest ground in the world sits at y = 0 (terrain base), so
+        // anything this far below it has fallen off the edge.
+        [SerializeField] private float fallLimitY = -20f;
 
         private CharacterController controller;
         private SoundEffects soundEffects;
@@ -33,6 +37,8 @@ namespace Sandbox.Player
         private float footstepTimer;
         private Ladder currentLadder;
         private float lastGroundNormalY = 1f;
+        private Vector3 spawnPosition;
+        private Quaternion spawnRotation;
 
         // Combines keyboard/gamepad input with the on-screen movement
         // joystick (when present) so both work simultaneously without one
@@ -51,6 +57,8 @@ namespace Sandbox.Player
         {
             controller = GetComponent<CharacterController>();
             soundEffects = GetComponent<SoundEffects>();
+            spawnPosition = transform.position;
+            spawnRotation = transform.rotation;
 
             InputActionMap map = actions.FindActionMap(actionMapName, throwIfNotFound: true);
             moveAction = map.FindAction("Move", throwIfNotFound: true);
@@ -171,6 +179,12 @@ namespace Sandbox.Player
 
         private void Update()
         {
+            if (transform.position.y < fallLimitY)
+            {
+                Respawn();
+                return;
+            }
+
             if (currentLadder != null)
                 ApplyLadderMovement();
             else
@@ -180,6 +194,29 @@ namespace Sandbox.Player
             }
 
             UpdateFootsteps();
+        }
+
+        // Puts the player back where they started after falling out of the
+        // world. Public so other systems (e.g. a future "reset" button) can
+        // reuse it.
+        public void Respawn()
+        {
+            Vector3 delta = spawnPosition - transform.position;
+
+            currentLadder = null;
+            verticalVelocity = Vector3.zero;
+            jumpQueued = false;
+
+            // CharacterController ignores direct position writes while
+            // enabled, so it has to be off for the teleport.
+            controller.enabled = false;
+            transform.SetPositionAndRotation(spawnPosition, spawnRotation);
+            controller.enabled = true;
+
+            // Tells the follow camera this was a teleport, so it cuts
+            // straight to the player instead of sweeping across the map.
+            CinemachineCore.OnTargetObjectWarped(transform, delta);
+            soundEffects?.PlayJump();
         }
 
         private void ApplyGravityAndJump()
